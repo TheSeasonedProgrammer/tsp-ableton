@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import types
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -162,6 +163,39 @@ class Bridge(unittest.TestCase):
         self.assertEqual(changed["sends"][0]["value"], 0.3)
         self.assertEqual(self.call("delete_track", track="Bass", confirm=True), {"deleted": "Bass"})
         self.assertIn("no track", self.fails("get_track", track=9))
+
+    def test_limiter_warning(self):
+        master = APPLICATION.song.master_track
+        limiter = master.devices[0]
+        self.addCleanup(setattr, master, "devices", [limiter])
+        warning = TSP_MCP.sys.modules["ableton_tools"].limiter_warning
+
+        self.assertIsNone(warning())
+        self.assertNotIn("warning", self.call("set_session", tempo=125))
+
+        master.devices = []
+        for reply in (self.call("set_session", tempo=126), self.call("get_session"), self.call("play"),
+                      self.call("fire_scene", scene=0), self.call("create_track", kind="midi")):
+            self.assertIn("Limiter", reply["warning"])
+        self.assertNotIn("warning", self.call("stop"))
+        self.assertNotIn("warning", self.call("list_clips", track="Drums"))
+        self.assertIn(warning(), self.surface.messages)
+
+        # Opening a Set shows it too.
+        self.surface.messages.clear()
+        self.surface._check_limiter()
+        self.assertEqual(self.surface.messages, [warning()])
+
+        # Only an active Limiter counts, and it can sit in a rack.
+        off = fake_live.Device("Limiter", class_name="Limiter")
+        off.is_active = False
+        master.devices = [off, fake_live.Device("Color Limiter", class_name="MxDeviceAudioEffect")]
+        self.assertIsNotNone(warning())
+        rack = fake_live.Device("Rack", class_name="AudioEffectGroupDevice")
+        rack.can_have_chains = True
+        rack.chains = [types.SimpleNamespace(devices=[limiter])]
+        master.devices = [rack]
+        self.assertIsNone(warning())
 
     def test_pigments_presets(self):
         state = b"22 serialization::archive 10 0 7 0 7 9 Test Bass 7 Factory 22 11 Test Author 4 Bass 0 0 2 0 3 80s 6 Analog 1 0 9 Deep bass 17 tail"

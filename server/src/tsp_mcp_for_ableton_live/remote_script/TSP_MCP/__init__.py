@@ -35,12 +35,15 @@ from _Framework.ControlSurface import ControlSurface
 HOST = "127.0.0.1"
 PORT = int(os.environ.get("ABLETON_BRIDGE_PORT", "8768"))
 RECEIVE_SIZE = 65536
+# Live builds the script as a Set opens, so wait for the Set before reading it. About a second.
+LIMITER_CHECK_TICKS = 10
 
 _tools = {}
 _tools_error = None
 _listener = None
 _clients = []
 _log = print
+_show = None
 
 
 # --- tool registry ------------------------------------------------------------
@@ -122,7 +125,10 @@ def _handle(request):
         tool = _tools.get(name)
         if tool is None:
             raise ValueError("unknown tool: %s" % name)
-        return tool["handler"](params.get("arguments") or {})
+        result = tool["handler"](params.get("arguments") or {})
+        if _show and isinstance(result, dict) and result.get("warning"):
+            _show(result["warning"])
+        return result
     if method == "reload_tools":
         return {"count": load_tools(), "error": _tools_error}
     if method == "status":
@@ -263,9 +269,10 @@ def stop_server():
 
 class TspMcp(ControlSurface):
     def __init__(self, c_instance):
-        global _log
+        global _log, _show
         ControlSurface.__init__(self, c_instance)
         _log = self.log_message
+        _show = self.show_message
         load_tools()
         try:
             start_server()
@@ -273,12 +280,21 @@ class TspMcp(ControlSurface):
         except OSError as error:
             self.log_message("TSP MCP could not listen on %s:%d: %s" % (HOST, PORT, error))
             self.show_message("TSP MCP: port %d is in use" % PORT)
+        self.schedule_message(LIMITER_CHECK_TICKS, self._check_limiter)
+
+    def _check_limiter(self):
+        package = sys.modules.get("ableton_tools")
+        warning = package.limiter_warning() if package else None
+        if warning:
+            self.show_message(warning)
 
     def update_display(self):
         ControlSurface.update_display(self)
         poll()
 
     def disconnect(self):
+        global _show
+        _show = None
         stop_server()
         ControlSurface.disconnect(self)
 

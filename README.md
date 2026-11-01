@@ -63,6 +63,17 @@ uv run --directory server tsp-mcp-for-ableton-live install --dev
 - Destructive tools (`delete_track`, `delete_scene`, `delete_clip`, `delete_device`) refuse unless called with `confirm: true`.
 - Arguments are validated against each tool's JSON Schema in the MCP server before anything reaches Live.
 
+## Hearing safety
+
+Generated parts and new sounds can be much louder than expected, so TSP MCP warns when the Main track has no active Ableton Limiter:
+
+- Replies from tools that change the Set, and from `get_session`, `play`, `fire_clip` and `fire_scene`, include a `warning` field. The server tells MCP clients to pass it on to the user.
+- Live's status bar shows the warning after those tool calls and when a Set opens or a new one is created.
+
+A Limiter inside a rack counts. One that's turned off doesn't, and neither does a third-party limiter or Color Limiter, so those Sets still warn. The warning doesn't add a Limiter or stop playback.
+
+A Limiter stops peaks going over its ceiling, but it can't make loud music quiet, and it can't control devices placed after it, the Main fader, or your monitor and headphone level. Start with your volume low.
+
 ## Drum beats
 
 `write_drum_pattern` takes one step string per drum and repeats each to fill the clip:

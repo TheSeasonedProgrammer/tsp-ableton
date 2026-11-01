@@ -33,7 +33,7 @@ def _state():
     }
 
 
-@tool("get_session", "Overview of the Live Set: tempo, signature, transport, loop, tracks, return tracks and scenes.")
+@tool("get_session", "Overview of the Live Set: tempo, signature, transport, loop, tracks, return tracks and scenes.", warn=True)
 def get_session(_args):
     return _state()
 
@@ -61,7 +61,7 @@ def set_session(args):
 @tool("play", "Start the transport, from from_beat if given, otherwise from the start marker. "
               "arrangement presses Back to Arrangement first, which tracks need after playing Session clips.",
       {"from_beat": {"type": "number", "minimum": 0},
-       "arrangement": {"type": "boolean"}})
+       "arrangement": {"type": "boolean"}}, warn=True)
 def play(args):
     song = u.song()
     if args.get("arrangement"):

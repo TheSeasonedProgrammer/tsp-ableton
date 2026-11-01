@@ -192,7 +192,8 @@ server = Server(
     instructions=(
         "Controls Ableton Live through its Remote Script API. Call ableton_bridge_status first, then get_session. "
         "Time is in beats (quarter notes). Nothing here can hear the audio or save the Live Set, "
-        "so ask the user how it sounds and remind them to save."
+        "so ask the user how it sounds and remind them to save. "
+        "If a reply has a warning field, tell the user straight away."
     ),
     get_tool_input_schema=catalog.schema,
     on_list_tools=list_tools,

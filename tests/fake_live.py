@@ -35,10 +35,11 @@ class Pad:
 
 class Device:
     can_have_chains = False
+    is_active = True
 
-    def __init__(self, name, pads=None):
+    def __init__(self, name, pads=None, class_name="Reverb"):
         self.name = name
-        self.class_name = "DrumGroupDevice" if pads is not None else "Reverb"
+        self.class_name = "DrumGroupDevice" if pads is not None else class_name
         self.can_have_drum_pads = pads is not None
         filled = pads or {}
         self.drum_pads = [Pad(note, filled.get(note, "Empty"), note in filled) for note in range(128)] if pads is not None else []
@@ -198,6 +199,7 @@ class Song:
         self.return_tracks = [Track("A-Reverb", midi=False, slots=0)]
         self.master_track = Track("Master", midi=False, slots=0)
         self.master_track.can_be_armed = False
+        self.master_track.devices.append(Device("Limiter", class_name="Limiter"))
         self.scenes = [Scene("Intro"), Scene("Verse")]
         self.groove_pool = types.SimpleNamespace(grooves=[])
         self.view = types.SimpleNamespace(selected_track=self.tracks[0])
@@ -287,6 +289,9 @@ class ControlSurface:
 
     def show_message(self, message):
         self.messages.append(message)
+
+    def schedule_message(self, delay_in_ticks, callback):
+        callback()
 
     def update_display(self):
         pass

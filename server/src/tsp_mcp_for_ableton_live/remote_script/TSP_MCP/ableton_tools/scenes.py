@@ -56,7 +56,7 @@ def delete_scene(args):
     return {"deleted": name}
 
 
-@tool("fire_scene", "Launch a scene.", {"scene": SCENE}, ("scene",))
+@tool("fire_scene", "Launch a scene.", {"scene": SCENE}, ("scene",), warn=True)
 def fire_scene(args):
     _find_scene(args["scene"]).fire()
     return {"fired": args["scene"]}

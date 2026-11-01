@@ -100,7 +100,7 @@ def duplicate_clip(args):
     return u.clip_info(target.clip)
 
 
-@tool("fire_clip", "Launch a clip, starting the transport if it's stopped.", CLIP_REF, ("track", "slot"))
+@tool("fire_clip", "Launch a clip, starting the transport if it's stopped.", CLIP_REF, ("track", "slot"), warn=True)
 def fire_clip(args):
     u.find_slot(u.find_track(args["track"]), args["slot"]).fire()
     return {"fired": True}
