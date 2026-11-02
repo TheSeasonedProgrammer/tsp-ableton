@@ -54,8 +54,9 @@ LOCAL_TOOLS = [
         name="get_audio_analysis",
         description="Measurements of the audio leaving each TSP Spatial Max for Live device, updated ten times a second: "
                     "momentary loudness (LUFS, approximate), peak and RMS per side in dBFS, left/right balance, "
-                    "correlation (1 mono, 0 wide, below 0 out of phase), side-to-mid level, and the share of energy "
-                    "below 150 Hz and above 5 kHz. Only measures while audio plays. TSP Spatial's Azimuth, Width "
+                    "correlation (1 mono, 0 wide, below 0 out of phase), side-to-mid level, and the energy below "
+                    "150 Hz and above 5 kHz, both as a share relative to the mid signal (bands_db) and as a level "
+                    "(band_levels_dbfs). Compare levels, not shares, to see what a filter removed. Only measures while audio plays. TSP Spatial's Azimuth, Width "
                     "and Distance parameters are set with set_device_parameter.",
         input_schema={"type": "object", "properties": {
             "track": {"type": "string", "description": "Only this track's device."}}, "additionalProperties": False},

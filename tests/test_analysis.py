@@ -55,6 +55,7 @@ class AnalysisTest(unittest.TestCase):
         self.assertEqual(device["peak_dbfs"], {"left": -6.0, "right": -6.0})
         self.assertEqual((device["balance_db"], device["correlation"], device["side_to_mid_db"]), (0.0, 0.8, -9.5))
         self.assertEqual(device["bands_db"], {"below_150_hz": -3.0, "above_5_khz": -10.0})
+        self.assertEqual(device["band_levels_dbfs"], {"below_150_hz": -13.5, "above_5_khz": -20.5})
 
     def test_silence_and_stale_reports(self):
         store = analysis.AnalysisStore()
@@ -68,6 +69,7 @@ class AnalysisTest(unittest.TestCase):
         quiet = store.snapshot(track="quiet", now=4.5)["devices"]
         self.assertEqual((len(quiet), quiet[0]["silent"], quiet[0]["loudness_lufs"]), (1, True, None))
         self.assertNotIn("correlation", quiet[0])
+        self.assertNotIn("band_levels_dbfs", quiet[0])
 
     def test_renamed_track_replaces_its_report_and_junk_is_ignored(self):
         store = analysis.AnalysisStore()

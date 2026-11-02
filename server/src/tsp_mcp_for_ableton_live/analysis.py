@@ -79,6 +79,8 @@ def summarize(values: dict[str, float]) -> dict[str, Any]:
     summary["side_to_mid_db"] = round(10 * math.log10(ms_side / ms_mid), 1) if ms_side > 1e-12 and ms_mid > 1e-12 else None
     if ms_mid > 1e-12:
         summary["bands_db"] = {"below_150_hz": _db(values["ms_low"] / ms_mid), "above_5_khz": _db(values["ms_high"] / ms_mid)}
+    # The shares above barely move when a filter also lowers the rest of the signal, so report the levels too.
+    summary["band_levels_dbfs"] = {"below_150_hz": _db(values["ms_low"]), "above_5_khz": _db(values["ms_high"])}
     return summary
 
 
