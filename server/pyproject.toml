@@ -4,7 +4,11 @@ version = "0.1.0"
 description = "TSP MCP for Ableton Live: control Ableton Live from Claude and other MCP clients"
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = ["mcp>=2.3,<3", "jsonschema>=4.20,<5"]
+dependencies = [
+    "mcp>=2.3,<3",
+    "jsonschema>=4.20,<5",
+    "zstandard>=0.23 ; python_full_version < '3.14'",
+]
 
 [project.scripts]
 tsp-mcp-for-ableton-live = "tsp_mcp_for_ableton_live.cli:main"

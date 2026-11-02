@@ -1,6 +1,6 @@
 # TSP MCP for Ableton Live
 
-MCP server for Ableton Live 12, split in two so the MCP side can use the official SDK while the Live side stays a plain Remote Script. This project is independent and isn't affiliated with or endorsed by Ableton or Arturia. All product names are trademarks of their owners.
+MCP server for Ableton Live 12, split in two so the MCP side can use the official SDK while the Live side stays a plain Remote Script. This project is independent and isn't affiliated with or endorsed by Ableton, Arturia or Xfer Records. All product names are trademarks of their owners.
 
 ```
 Claude Code ──stdio──> MCP server  (Python 3.12+, official mcp SDK, run by uv)
@@ -24,7 +24,7 @@ The Remote Script ships inside the Python package, at `server/src/tsp_mcp_for_ab
 | Pigments | `list_pigments_presets`, `load_pigments_preset` |
 | Arrangement | `list_arrangement_clips`, `set_arrangement_clip_name`, `copy_clip_to_arrangement`, `create_locator`, `switch_to_arrangement_view`, `set_clip_automation`, `clear_clip_automation` |
 
-The MCP server adds `ableton_bridge_status`, `ableton_reload_tools` and `get_audio_analysis`. The last one reads measurements from the TSP Spatial Max for Live device, which sends them to the server over UDP on 127.0.0.1:8769 (`ABLETON_ANALYSIS_PORT` changes it). That gives the AI levels, loudness and stereo width without hearing anything. If two sessions run the server, only the first one receives them.
+The MCP server adds `ableton_bridge_status`, `ableton_reload_tools`, `get_audio_analysis` and four Serum 2 tools (see [Serum 2 presets](#serum-2-presets)). The last one reads measurements from the TSP Spatial Max for Live device, which sends them to the server over UDP on 127.0.0.1:8769 (`ABLETON_ANALYSIS_PORT` changes it). That gives the AI levels, loudness and stereo width without hearing anything. If two sessions run the server, only the first one receives them.
 
 `create_audio_clip` imports a file into a Session slot or onto the arrangement at a beat. The clip refers to the file rather than copying it, so keep the file, or use Live's Collect All and Save.
 
@@ -103,6 +103,25 @@ Drums resolve against the pad names of the track's Drum Rack, including one nest
 Pigments only reports `Default` to Live's API, so the tool wraps the preset file in a `.vstpreset`, saves it under `TSP MCP/Pigments` in your User Library and loads it from there. Live's browser takes a few seconds to find a new file. Until it does, the call returns `loaded: false`, so call it again. Later loads of that preset are immediate.
 
 Each load is a fresh Pigments instance. It replaces the track's instrument and any parameters configured in Live's plugin panel, and keeps the clips. It relies on Arturia's preset file format, which is undocumented, and has been tested with Pigments 6.0.4 and 7.0.1 on Windows.
+
+## Serum 2 presets
+
+Xfer Serum 2 keeps its presets as `.SerumPreset` files, in the folder named by `Serum Presets Path` in its preferences, or by `SERUM2_PRESETS`. These four tools run in the MCP server rather than in Live, because they need zstd, which Live's Python doesn't have:
+
+- `list_serum_presets` searches names, folders, authors, tags and descriptions.
+- `get_serum_preset` lists every setting that differs from Serum's defaults, as `"Module.kParamName": value`. For example, `Env0.kParamAttack` is in seconds, and `Oscillator1.kParamUnison` is the voice count.
+- `load_serum_preset` loads a preset onto a track as a fresh Serum 2 instance.
+- `create_serum_preset` copies a preset with changed settings to `Presets/User/TSP MCP`, so Serum's own browser shows it too, and can load it straight away:
+
+```json
+{"base": "My Bass", "name": "My Slow Bass", "settings": {"Env0.kParamAttack": 0.5, "Env0.kParamRelease": 2.0}}
+```
+
+Serum 2 rejects a preset file handed to it as plugin state: it reports "The host provided invalid data to the Audio Processor". Its state is split in two: the processor part holds the sound, and the controller part holds the UI settings and the preset's name. A preset file holds both, so `load_serum_preset` copies each part's keys into its own state, unchanged, and wraps the pair in a `.vstpreset` under `TSP MCP/Serum 2` in your User Library. A setting a preset doesn't store is at its default, and Serum ignores names it doesn't know, so `create_serum_preset` lists any names no local preset uses.
+
+Serum 1 `.fxp` presets aren't included. If Serum's factory content isn't installed, presets that use its wavetables or samples open a Missing Files window inside Serum.
+
+The format is undocumented. It was worked out from preset files and Live Sets, and tested with Serum 2.1.4 in Live 12.4.16 on Windows.
 
 ## Limits of Live's API
 

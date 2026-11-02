@@ -26,6 +26,7 @@ os.environ["ABLETON_BRIDGE_PORT"] = PORT
 
 import fake_live
 import test_analysis
+import test_serum
 
 APPLICATION = fake_live.install()
 
@@ -437,7 +438,12 @@ class Bridge(unittest.TestCase):
 
     def test_mcp_server_end_to_end(self):
         """Drive the real MCP server over stdio, as Claude Code does."""
-        env = dict(os.environ, ABLETON_BRIDGE_PORT=PORT, ABLETON_ANALYSIS_PORT=ANALYSIS_PORT, LOCALAPPDATA=str(ROOT / "tests" / ".cache"))
+        serum_folder = tempfile.TemporaryDirectory()
+        self.addCleanup(serum_folder.cleanup)
+        Path(serum_folder.name, "Pack").mkdir()
+        Path(serum_folder.name, "Pack", "Test.SerumPreset").write_bytes(test_serum.make_preset())
+        env = dict(os.environ, ABLETON_BRIDGE_PORT=PORT, ABLETON_ANALYSIS_PORT=ANALYSIS_PORT, SERUM2_PRESETS=serum_folder.name,
+                   LOCALAPPDATA=str(ROOT / "tests" / ".cache"))
         server = subprocess.Popen(["uv", "run", "--quiet", "--directory", str(ROOT / "server"), "tsp-mcp-for-ableton-live"],
                                   stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, encoding="utf-8", env=env)
         try:
@@ -475,6 +481,21 @@ class Bridge(unittest.TestCase):
                     break
                 time.sleep(0.05)
             self.assertEqual((devices[0]["track"], devices[0]["correlation"]), ("Pad", 0.8))
+
+            # Serum 2 presets are handled in the server, with real zstd.
+            def tool(request_id, tool_name, /, **arguments):
+                reply = rpc(request_id, "tools/call", {"name": tool_name, "arguments": arguments})["result"]
+                self.assertFalse(reply.get("isError"), reply)
+                return json.loads(reply["content"][0]["text"])
+
+            self.assertEqual(tool(200, "list_serum_presets", query="bass")["presets"][0]["path"], "Pack/Test.SerumPreset")
+            self.assertEqual(tool(201, "get_serum_preset", preset="Test Bass")["settings"]["Env0.kParamAttack"], 0.01)
+            created = tool(202, "create_serum_preset", base="Test Bass", name="Slow Bass", settings={"Env0.kParamAttack": 0.6, "Env0.kParamAtack": 1})
+            self.assertEqual((created["created"], created["unrecognized"]), ("User/TSP MCP/Slow Bass.SerumPreset", ["Env0.kParamAtack"]))
+            self.assertEqual(tool(203, "get_serum_preset", preset="Slow Bass")["settings"]["Env0.kParamAttack"], 0.6)
+            reply = rpc(204, "tools/call", {"name": "create_serum_preset", "arguments": {"base": "Test Bass", "name": "Slow Bass", "settings": {}}})["result"]
+            self.assertTrue(reply.get("isError"))
+            self.assertIn("overwrite", reply["content"][0]["text"])
 
             # The schema is enforced before anything reaches Live.
             result = rpc(5, "tools/call", {"name": "write_drum_pattern", "arguments": {"track": 0, "slot": -1, "pattern": {"kick": "x"}}})["result"]

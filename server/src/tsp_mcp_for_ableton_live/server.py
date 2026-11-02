@@ -12,6 +12,7 @@ import asyncio
 import itertools
 import json
 import os
+import re
 from importlib import metadata
 from pathlib import Path
 from typing import Any
@@ -23,7 +24,9 @@ from mcp.server.context import ServerRequestContext
 from mcp.server.lowlevel.server import NotificationOptions, Server
 from mcp.server.stdio import stdio_server
 
+from tsp_mcp_for_ableton_live import serum
 from tsp_mcp_for_ableton_live.analysis import AnalysisStore
+from tsp_mcp_for_ableton_live.install import InstallError, find_user_library
 
 HOST = os.environ.get("ABLETON_BRIDGE_HOST", "127.0.0.1")
 PORT = int(os.environ.get("ABLETON_BRIDGE_PORT", "8768"))
@@ -57,7 +60,56 @@ LOCAL_TOOLS = [
         input_schema={"type": "object", "properties": {
             "track": {"type": "string", "description": "Only this track's device."}}, "additionalProperties": False},
     ),
+    types.Tool(
+        name="list_serum_presets",
+        description="Find Xfer Serum 2 presets (.SerumPreset) in Serum's preset folder. Every word of query must appear "
+                    "in the name, folder, author, tags or description. Serum 1 .fxp presets aren't included.",
+        input_schema={"type": "object", "properties": {
+            "query": {"type": "string", "description": "Words to look for, such as \"pluck\" or \"bass reese\"."},
+            "limit": {"type": "integer", "minimum": 1, "maximum": 200, "description": "Default 30."}},
+            "additionalProperties": False},
+    ),
+    types.Tool(
+        name="get_serum_preset",
+        description="Show how a Serum 2 preset is built: every setting that differs from Serum's defaults, as "
+                    "\"Module.kParamName\": value, such as \"Env0.kParamAttack\" (seconds) or "
+                    "\"Oscillator1.kParamUnison\". Settings not listed are at their defaults.",
+        input_schema={"type": "object", "properties": {
+            "preset": {"type": "string", "description": "Preset name, or its path from list_serum_presets."}},
+            "required": ["preset"], "additionalProperties": False},
+    ),
+    types.Tool(
+        name="load_serum_preset",
+        description="Load a Serum 2 preset onto a track as a fresh Serum 2 instance, replacing the track's instrument "
+                    "and keeping its clips. The first load of a preset waits a few seconds for Live's browser. "
+                    "Presets that use wavetables or samples from content that isn't installed open a Missing Files "
+                    "window inside Serum, which the user closes; the rest of the sound still loads.",
+        input_schema={"type": "object", "properties": {
+            "track": {"type": ["integer", "string"], "description": "Track index (0-based) or name."},
+            "preset": {"type": "string", "description": "Preset name, or its path from list_serum_presets."}},
+            "required": ["track", "preset"], "additionalProperties": False},
+    ),
+    types.Tool(
+        name="create_serum_preset",
+        description="Make a new Serum 2 preset from an existing one with changed settings, saved under "
+                    "Presets/User/TSP MCP so it also shows in Serum's browser. Settings use the names "
+                    "get_serum_preset shows, such as {\"Env0.kParamAttack\": 0.8, \"Oscillator0.kParamUnison\": 7}; a "
+                    "kParam missing from the base can be added. The reply lists names no local preset uses, "
+                    "which may be misspelt. Give track to load it straight away.",
+        input_schema={"type": "object", "properties": {
+            "base": {"type": "string", "description": "Preset to start from: name or path."},
+            "name": {"type": "string", "minLength": 1},
+            "settings": {"type": "object", "additionalProperties": {"type": ["number", "string", "boolean"]}},
+            "author": {"type": "string"},
+            "description": {"type": "string"},
+            "tags": {"type": "array", "items": {"type": "string"}},
+            "overwrite": {"type": "boolean", "description": "Replace a preset of the same name made earlier."},
+            "track": {"type": ["integer", "string"], "description": "Load it onto this track afterwards."}},
+            "required": ["base", "name", "settings"], "additionalProperties": False},
+    ),
 ]
+# How long load_serum_preset waits for Live's browser to find a new .vstpreset.
+BROWSER_WAIT_SECONDS = 30.0
 
 
 class BridgeUnavailable(Exception):
@@ -185,11 +237,16 @@ async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestPara
             was_live = catalog.live
             await _notify_if_changed(ctx, await catalog.refresh() or not was_live)
             return _text({**status, "address": f"{HOST}:{PORT}"})
-        if name == "get_audio_analysis":
+        if name == "get_audio_analysis" or name in SERUM_TOOLS:
             errors = validation_errors(name, arguments)
             if errors:
                 return _text(f"invalid arguments for {name}: " + "; ".join(errors), is_error=True)
-            return _text(analysis.snapshot(arguments.get("track")))
+            if name == "get_audio_analysis":
+                return _text(analysis.snapshot(arguments.get("track")))
+            try:
+                return _text(await SERUM_TOOLS[name](arguments))
+            except (serum.SerumError, InstallError, OSError) as error:
+                return _text(str(error), is_error=True)
         if name == "ableton_reload_tools":
             result = await bridge_call("reload_tools", timeout=120)
             await _notify_if_changed(ctx, await catalog.refresh())
@@ -229,6 +286,97 @@ server = Server(
     on_list_tools=list_tools,
     on_call_tool=call_tool,
 )
+
+
+_known_settings: dict[str, tuple[float, set[str]]] = {}
+
+
+def _known_setting_names(presets: list[dict[str, Any]], folder: Path) -> set[str]:
+    """Setting names used by any local preset, with module numbers removed, cached by file time."""
+    names: set[str] = set()
+    for preset in presets:
+        path = folder / preset["path"]
+        try:
+            stamp = path.stat().st_mtime
+            if _known_settings.get(preset["path"], (None,))[0] != stamp:
+                found = {re.sub(r"\d+", "#", key) for key in serum.describe(path.read_bytes())["settings"]}
+                _known_settings[preset["path"]] = (stamp, found)
+            names |= _known_settings[preset["path"]][1]
+        except (OSError, ValueError, serum.SerumError):
+            continue
+    return names
+
+
+async def _list_serum(arguments: dict[str, Any]) -> dict[str, Any]:
+    folder = serum.presets_folder()
+    presets = serum.catalog(folder)
+    found = serum.search(presets, arguments.get("query", ""))
+    return {"folder": str(folder), "total": len(presets), "matched": len(found), "presets": found[:arguments.get("limit", 30)]}
+
+
+async def _get_serum(arguments: dict[str, Any]) -> dict[str, Any]:
+    folder = serum.presets_folder()
+    preset = serum.find(serum.catalog(folder), arguments["preset"])
+    return dict(serum.describe((folder / preset["path"]).read_bytes()), path=preset["path"])
+
+
+async def _load_serum(arguments: dict[str, Any]) -> dict[str, Any]:
+    folder = serum.presets_folder()
+    preset = serum.find(serum.catalog(folder), arguments["preset"])
+    return await _load_serum_file(folder / preset["path"], preset["path"], arguments["track"])
+
+
+async def _load_serum_file(source: Path, relative: str, track: int | str) -> dict[str, Any]:
+    data = serum.to_vstpreset(source.read_bytes())
+    file_name = serum.safe_name(relative.removesuffix(serum.EXTENSION).replace("/", " - ")) + ".vstpreset"
+    target = find_user_library() / "TSP MCP" / "Serum 2" / file_name
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if not target.is_file() or target.read_bytes() != data:
+        target.write_bytes(data)
+    folder_path = ["user_library", "TSP MCP", "Serum 2"]
+    deadline = asyncio.get_running_loop().time() + BROWSER_WAIT_SECONDS
+    while True:
+        try:
+            listing = await bridge_call("call_tool", {"name": "browse", "arguments": {"path": folder_path}})
+            if any(item["name"] == file_name for item in listing["items"]):
+                break
+        except BridgeError:
+            pass  # the folder itself may not be indexed yet
+        if asyncio.get_running_loop().time() > deadline:
+            raise serum.SerumError("Live's browser hasn't found %s after %.0f s; try again shortly" % (file_name, BROWSER_WAIT_SECONDS))
+        await asyncio.sleep(1.0)
+    loaded = await bridge_call("call_tool", {"name": "load_from_browser", "arguments": {"track": track, "path": folder_path + [file_name]}})
+    result = {"loaded": relative, "track": loaded["track"], "devices": loaded["devices"]}
+    if loaded.get("warning"):
+        result["warning"] = loaded["warning"]
+    return result
+
+
+async def _create_serum(arguments: dict[str, Any]) -> dict[str, Any]:
+    folder = serum.presets_folder()
+    presets = serum.catalog(folder)
+    base = serum.find(presets, arguments["base"])
+    blob = serum.create((folder / base["path"]).read_bytes(), arguments["name"], arguments["settings"],
+                        author=arguments.get("author"), description=arguments.get("description"), tags=arguments.get("tags"))
+    target = folder.joinpath(*serum.CREATED_FOLDER, serum.safe_name(arguments["name"]) + serum.EXTENSION)
+    if target.exists() and not arguments.get("overwrite"):
+        raise serum.SerumError("%s already exists; pass overwrite: true to replace it" % target)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(blob)
+    known = _known_setting_names(presets, folder)
+    unknown = sorted(path for path in arguments["settings"] if re.sub(r"\d+", "#", path) not in known)
+    relative = target.relative_to(folder).as_posix()
+    result: dict[str, Any] = {"created": relative, "base": base["path"], "settings_changed": len(arguments["settings"])}
+    if unknown:
+        result["unrecognized"] = unknown
+        result["note"] = "No local preset uses these names. Serum ignores names it doesn't know, so check the spelling."
+    if "track" in arguments:
+        result["load"] = await _load_serum_file(target, relative, arguments["track"])
+    return result
+
+
+SERUM_TOOLS = {"list_serum_presets": _list_serum, "get_serum_preset": _get_serum,
+               "load_serum_preset": _load_serum, "create_serum_preset": _create_serum}
 
 
 class _AnalysisProtocol(asyncio.DatagramProtocol):
