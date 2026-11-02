@@ -24,7 +24,7 @@ The Remote Script ships inside the Python package, at `server/src/tsp_mcp_for_ab
 | Pigments | `list_pigments_presets`, `load_pigments_preset` |
 | Arrangement | `list_arrangement_clips`, `set_arrangement_clip_name`, `copy_clip_to_arrangement`, `create_locator`, `switch_to_arrangement_view`, `set_clip_automation`, `clear_clip_automation` |
 
-The MCP server adds `ableton_bridge_status` and `ableton_reload_tools`.
+The MCP server adds `ableton_bridge_status`, `ableton_reload_tools` and `get_audio_analysis`. The last one reads measurements from the TSP Spatial Max for Live device, which sends them to the server over UDP on 127.0.0.1:8769 (`ABLETON_ANALYSIS_PORT` changes it). That gives the AI levels, loudness and stereo width without hearing anything. If two sessions run the server, only the first one receives them.
 
 `create_audio_clip` imports a file into a Session slot or onto the arrangement at a beat. The clip refers to the file rather than copying it, so keep the file, or use Live's Collect All and Save.
 

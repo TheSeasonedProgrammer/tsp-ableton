@@ -21,9 +21,11 @@ ROOT = Path(__file__).resolve().parent.parent
 REMOTE_SCRIPTS = ROOT / "server" / "src" / "tsp_mcp_for_ableton_live" / "remote_script"
 sys.path[:0] = [str(ROOT / "tests"), str(REMOTE_SCRIPTS), str(REMOTE_SCRIPTS / "TSP_MCP")]
 PORT = "18768"
+ANALYSIS_PORT = "18769"
 os.environ["ABLETON_BRIDGE_PORT"] = PORT
 
 import fake_live
+import test_analysis
 
 APPLICATION = fake_live.install()
 
@@ -435,7 +437,7 @@ class Bridge(unittest.TestCase):
 
     def test_mcp_server_end_to_end(self):
         """Drive the real MCP server over stdio, as Claude Code does."""
-        env = dict(os.environ, ABLETON_BRIDGE_PORT=PORT, LOCALAPPDATA=str(ROOT / "tests" / ".cache"))
+        env = dict(os.environ, ABLETON_BRIDGE_PORT=PORT, ABLETON_ANALYSIS_PORT=ANALYSIS_PORT, LOCALAPPDATA=str(ROOT / "tests" / ".cache"))
         server = subprocess.Popen(["uv", "run", "--quiet", "--directory", str(ROOT / "server"), "tsp-mcp-for-ableton-live"],
                                   stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, encoding="utf-8", env=env)
         try:
@@ -462,6 +464,17 @@ class Bridge(unittest.TestCase):
             # The server repeats a call that replies with retry_after, so the client sees one call.
             result = rpc(6, "tools/call", {"name": "create_locator", "arguments": {"beat": 48, "name": "Outro"}})["result"]
             self.assertEqual(json.loads(result["content"][0]["text"])["name"], "Outro")
+
+            # TSP Spatial devices report over UDP straight to the server.
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as udp:
+                udp.sendto(test_analysis.report(4, "Pad"), ("127.0.0.1", int(ANALYSIS_PORT)))
+            for request_id in range(100, 150):
+                result = rpc(request_id, "tools/call", {"name": "get_audio_analysis", "arguments": {"track": "pad"}})["result"]
+                devices = json.loads(result["content"][0]["text"])["devices"]
+                if devices:
+                    break
+                time.sleep(0.05)
+            self.assertEqual((devices[0]["track"], devices[0]["correlation"]), ("Pad", 0.8))
 
             # The schema is enforced before anything reaches Live.
             result = rpc(5, "tools/call", {"name": "write_drum_pattern", "arguments": {"track": 0, "slot": -1, "pattern": {"kick": "x"}}})["result"]

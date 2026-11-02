@@ -23,6 +23,8 @@ from mcp.server.context import ServerRequestContext
 from mcp.server.lowlevel.server import NotificationOptions, Server
 from mcp.server.stdio import stdio_server
 
+from tsp_mcp_for_ableton_live.analysis import AnalysisStore
+
 HOST = os.environ.get("ABLETON_BRIDGE_HOST", "127.0.0.1")
 PORT = int(os.environ.get("ABLETON_BRIDGE_PORT", "8768"))
 CONNECT_TIMEOUT = 3.0
@@ -31,6 +33,8 @@ CACHE_FILE = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "tsp-mcp-for-ab
 LINE_LIMIT = 64 * 1024 * 1024
 # Calls repeated for a tool reply holding retry_after.
 RETRIES = 20
+# Where TSP Spatial devices send their measurements. The device has 8769 built in.
+ANALYSIS_PORT = int(os.environ.get("ABLETON_ANALYSIS_PORT", "8769"))
 
 LOCAL_TOOLS = [
     types.Tool(
@@ -42,6 +46,16 @@ LOCAL_TOOLS = [
         name="ableton_reload_tools",
         description="Re-import the ableton_tools modules inside Live after they change on disk, then refresh the tool list.",
         input_schema={"type": "object", "properties": {}},
+    ),
+    types.Tool(
+        name="get_audio_analysis",
+        description="Measurements of the audio leaving each TSP Spatial Max for Live device, updated ten times a second: "
+                    "momentary loudness (LUFS, approximate), peak and RMS per side in dBFS, left/right balance, "
+                    "correlation (1 mono, 0 wide, below 0 out of phase), side-to-mid level, and the share of energy "
+                    "below 150 Hz and above 5 kHz. Only measures while audio plays. TSP Spatial's Azimuth, Width "
+                    "and Distance parameters are set with set_device_parameter.",
+        input_schema={"type": "object", "properties": {
+            "track": {"type": "string", "description": "Only this track's device."}}, "additionalProperties": False},
     ),
 ]
 
@@ -127,6 +141,7 @@ class ToolCatalog:
 
 
 catalog = ToolCatalog()
+analysis = AnalysisStore()
 
 
 def validation_errors(name: str, arguments: dict[str, Any]) -> list[str]:
@@ -170,6 +185,11 @@ async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestPara
             was_live = catalog.live
             await _notify_if_changed(ctx, await catalog.refresh() or not was_live)
             return _text({**status, "address": f"{HOST}:{PORT}"})
+        if name == "get_audio_analysis":
+            errors = validation_errors(name, arguments)
+            if errors:
+                return _text(f"invalid arguments for {name}: " + "; ".join(errors), is_error=True)
+            return _text(analysis.snapshot(arguments.get("track")))
         if name == "ableton_reload_tools":
             result = await bridge_call("reload_tools", timeout=120)
             await _notify_if_changed(ctx, await catalog.refresh())
@@ -211,7 +231,33 @@ server = Server(
 )
 
 
+class _AnalysisProtocol(asyncio.DatagramProtocol):
+    def datagram_received(self, data: bytes, _address: Any) -> None:
+        analysis.receive(data)
+
+
+async def listen_for_analysis() -> asyncio.DatagramTransport | None:
+    """Receive TSP Spatial reports. Another server already listening, such as a second session, keeps the port."""
+    try:
+        transport, _protocol = await asyncio.get_running_loop().create_datagram_endpoint(
+            _AnalysisProtocol, local_addr=(HOST, ANALYSIS_PORT))
+    except OSError as error:
+        analysis.error = (f"Can't receive TSP Spatial reports: port {ANALYSIS_PORT} is in use ({error.strerror}), "
+                          "probably by another session's server. Close it, or set ABLETON_ANALYSIS_PORT.")
+        return None
+    return transport
+
+
 async def _run() -> None:
+    transport = await listen_for_analysis()
+    try:
+        await _serve()
+    finally:
+        if transport is not None:
+            transport.close()
+
+
+async def _serve() -> None:
     async with stdio_server() as (read_stream, write_stream):
         await server.run(
             read_stream,
