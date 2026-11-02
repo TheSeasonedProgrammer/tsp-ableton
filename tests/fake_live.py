@@ -7,6 +7,8 @@ behaves, so changes to tools still need trying in Live.
 import sys
 import types
 
+_application = None
+
 
 class Parameter:
     def __init__(self, name, value=0.0, low=0.0, high=1.0, items=()):
@@ -79,10 +81,12 @@ class Envelope:
 class Clip:
     is_midi_clip = True
     is_playing = False
+    file_path = None
 
-    def __init__(self, length):
+    def __init__(self, length, start_time=0.0):
         self.name = ""
         self.length = length
+        self.start_time, self.end_time = start_time, start_time + length
         self.looping = True
         self.loop_start = self.start_marker = 0.0
         self.loop_end = self.end_marker = length
@@ -133,6 +137,10 @@ class Slot:
     def create_clip(self, length):
         self.clip = Clip(length)
 
+    def create_audio_clip(self, path):
+        self.clip = audio_clip(path)
+        return self.clip
+
     def delete_clip(self):
         self.clip = None
 
@@ -143,8 +151,16 @@ class Slot:
         target.clip = Clip(self.clip.length)
 
 
+def audio_clip(path, start_time=0.0):
+    clip = Clip(4.0, start_time)
+    clip.is_midi_clip = False
+    clip.file_path = path
+    return clip
+
+
 class Track:
     is_foldable = False
+    is_frozen = False
     color = 0xff0000
     mute = solo = arm = False
 
@@ -164,7 +180,11 @@ class Track:
         del self.devices[index]
 
     def duplicate_clip_to_arrangement(self, clip, time):
-        self.arrangement_clips.append((clip, time))
+        self.arrangement_clips.append(Clip(clip.length, time))
+
+    def create_audio_clip(self, path, time):
+        self.arrangement_clips.append(audio_clip(path, time))
+        return self.arrangement_clips[-1]
 
 
 class Scene:
@@ -183,7 +203,6 @@ class Song:
     signature_numerator = 4
     signature_denominator = 4
     is_playing = False
-    current_song_time = 0.0
     metronome = False
     groove_amount = 1.0
     loop = False
@@ -203,8 +222,37 @@ class Song:
         self.scenes = [Scene("Intro"), Scene("Verse")]
         self.groove_pool = types.SimpleNamespace(grooves=[])
         self.view = types.SimpleNamespace(selected_track=self.tracks[0])
+        self.cue_points = []
+        self.song_time = 0.0
+        self.pending_song_time = None
         self.undo_depth = 0
         self.undo_steps = 0
+
+    @property
+    def current_song_time(self):
+        return self.song_time
+
+    @current_song_time.setter
+    def current_song_time(self, value):
+        # Like Live, a stopped playhead only moves on the next tick.
+        if self.is_playing:
+            self.song_time = value
+        else:
+            self.pending_song_time = value
+
+    def tick(self):
+        if self.pending_song_time is not None:
+            self.song_time, self.pending_song_time = self.pending_song_time, None
+
+    def is_cue_point_selected(self):
+        return any(cue.time == self.song_time for cue in self.cue_points)
+
+    def set_or_delete_cue(self):
+        here = [cue for cue in self.cue_points if cue.time == self.song_time]
+        if here:
+            self.cue_points.remove(here[0])
+        else:
+            self.cue_points.append(types.SimpleNamespace(name=str(len(self.cue_points) + 1), time=self.song_time))
 
     def begin_undo_step(self):
         self.undo_depth += 1
@@ -261,10 +309,20 @@ class Browser:
         self.song.view.selected_track.devices.append(Device(item.name, {36: "Kick 808", 38: "Snare 808", 42: "Hihat Closed", 46: "Hihat Open"}))
 
 
+class View:
+    focused_document_view = "Session"
+
+    def show_view(self, name):
+        if name not in ("Session", "Arranger"):
+            raise RuntimeError("unknown view")
+        self.focused_document_view = name
+
+
 class Application:
     def __init__(self, song):
         self.song = song
         self.browser = Browser(song)
+        self.view = View()
 
     def get_document(self):
         return self.song
@@ -294,7 +352,7 @@ class ControlSurface:
         callback()
 
     def update_display(self):
-        pass
+        _application.song.tick()
 
     def disconnect(self):
         pass
@@ -302,7 +360,8 @@ class ControlSurface:
 
 def install():
     """Put fake Live and _Framework modules in sys.modules. Returns the Application."""
-    application = Application(Song())
+    global _application
+    application = _application = Application(Song())
     live = types.ModuleType("Live")
     live.Application = types.SimpleNamespace(get_application=lambda: application)
     live.Clip = types.SimpleNamespace(MidiNoteSpecification=MidiNoteSpecification)

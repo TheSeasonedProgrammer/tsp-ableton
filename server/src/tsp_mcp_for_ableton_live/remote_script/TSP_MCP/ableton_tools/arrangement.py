@@ -1,4 +1,4 @@
-"""Arrangement View clips and clip automation."""
+"""Arrangement View clips, locators and clip automation."""
 
 from ableton_tools._registry import tool
 from ableton_tools import _util as u
@@ -8,6 +8,8 @@ TARGET = {
     "device": {"type": ["integer", "string"], "description": "Device index or name, or \"mixer\" for volume, pan and sends."},
     "parameter": {"type": ["integer", "string"], "description": "Parameter index or name. With device \"mixer\": volume, pan, or send A, B..."},
 }
+# Where create_locator found the playhead, by target beat, until the locator is added.
+_return_to = {}
 
 
 def _target_parameter(args):
@@ -17,13 +19,84 @@ def _target_parameter(args):
     return u.find_parameter(u.find_device(track, args["device"]), args["parameter"])
 
 
+def arrangement_clips(track):
+    return [{"index": index, "name": clip.name, "start": clip.start_time, "end": clip.end_time, "midi": clip.is_midi_clip}
+            for index, clip in enumerate(track.arrangement_clips)]
+
+
+def locators():
+    return [{"name": cue.name, "beat": cue.time} for cue in sorted(u.song().cue_points, key=lambda cue: cue.time)]
+
+
 @tool("list_arrangement_clips", "List the clips on a track in Arrangement View.", {"track": u.TRACK}, ("track",))
 def list_arrangement_clips(args):
     track = u.find_track(args["track"])
-    return {"track": track.name, "clips": [
-        {"name": clip.name, "start": clip.start_time, "end": clip.end_time, "midi": clip.is_midi_clip}
-        for clip in track.arrangement_clips
-    ]}
+    return {"track": track.name, "clips": arrangement_clips(track)}
+
+
+@tool("set_arrangement_clip_name", "Rename a clip in Arrangement View. clip is its index from list_arrangement_clips.",
+      {"track": u.TRACK,
+       "clip": {"type": "integer", "minimum": 0},
+       "name": {"type": "string"}},
+      ("track", "clip", "name"), write=True)
+def set_arrangement_clip_name(args):
+    track = u.find_track(args["track"])
+    clips = list(track.arrangement_clips)
+    if args["clip"] >= len(clips):
+        raise ValueError("'%s' has no arrangement clip %d; it has %d" % (track.name, args["clip"], len(clips)))
+    clip = clips[args["clip"]]
+    clip.name = args["name"]
+    return {"index": args["clip"], "name": clip.name, "start": clip.start_time, "end": clip.end_time}
+
+
+def _cue_at(beat):
+    return next((cue for cue in u.song().cue_points if abs(cue.time - beat) < 1e-6), None)
+
+
+@tool("create_locator", "Add a named locator (marker) to the arrangement at a beat, or rename the one already there. "
+                        "Live only adds locators at the playhead, so this moves the playhead there and back, "
+                        "and refuses while the transport is running. Live snaps a beat between grid lines forward to the "
+                        "arrangement grid; the reply says where the locator landed. "
+                        "A reply with retry_after means the playhead is still moving: call again with the same arguments.",
+      {"beat": {"type": "number", "minimum": 0},
+       "name": {"type": "string"}},
+      ("beat",), write=True)
+def create_locator(args):
+    song = u.song()
+    beat = float(args["beat"])
+    cue = _cue_at(beat)
+    if cue is None:
+        if song.is_playing:
+            raise ValueError("stop the transport first; adding a locator moves the playhead")
+        if abs(song.current_song_time - beat) > 1e-6:
+            # Live moves the playhead on its next tick, so the locator is added by the next call.
+            _return_to.setdefault(beat, song.current_song_time)
+            song.current_song_time = beat
+            return {"retry_after": 0.1, "message": "moving the playhead to beat %s; call again to add the locator" % beat}
+        if song.is_cue_point_selected():
+            raise ValueError("the playhead is on a locator; this would delete it")
+        times = [cue.time for cue in song.cue_points]
+        song.set_or_delete_cue()
+        added = [cue for cue in song.cue_points if cue.time not in times]
+        back = _return_to.pop(beat, None)
+        if back is not None:
+            song.current_song_time = back
+        if not added:
+            raise ValueError("Live didn't add a locator; there may already be one where it snapped to")
+        cue = added[0]
+    if args.get("name"):
+        cue.name = args["name"]
+    result = {"name": cue.name, "beat": cue.time, "locators": locators()}
+    if abs(cue.time - beat) > 1e-6:
+        result["snapped"] = "Live put it on the arrangement grid at beat %s; zoom in for a finer grid" % cue.time
+    return result
+
+
+@tool("switch_to_arrangement_view", "Show Arrangement View in Live's main window.")
+def switch_to_arrangement_view(_args):
+    view = u.application().view
+    view.show_view("Arranger")
+    return {"view": view.focused_document_view}
 
 
 @tool("copy_clip_to_arrangement", "Copy a Session View clip into Arrangement View on its own track, repeated back to back. "

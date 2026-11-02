@@ -9,22 +9,24 @@ Claude Code ──stdio──> MCP server  (Python 3.12+, official mcp SDK, run 
                        TSP_MCP Remote Script  (inside Live, polled on the main thread)
 ```
 
-The Remote Script ships inside the Python package, at `server/src/tsp_mcp_for_ableton_live/remote_script/TSP_MCP/`. Its 44 tools live in `ableton_tools/` there:
+The Remote Script ships inside the Python package, at `server/src/tsp_mcp_for_ableton_live/remote_script/TSP_MCP/`. Its 50 tools live in `ableton_tools/` there:
 
 | Area | Tools |
 |---|---|
-| Session | `get_session`, `set_session`, `play`, `stop`, `undo`, `redo` |
+| Session | `get_session`, `get_session_snapshot`, `set_session`, `play`, `stop`, `undo`, `redo` |
 | Tracks | `get_track`, `create_track`, `duplicate_track`, `delete_track`, `set_track` |
 | Scenes | `create_scene`, `set_scene`, `duplicate_scene`, `delete_scene`, `fire_scene` |
-| Clips | `list_clips`, `get_clip`, `create_clip`, `set_clip`, `delete_clip`, `duplicate_clip`, `fire_clip`, `stop_clips` |
+| Clips | `list_clips`, `get_clip`, `create_clip`, `create_audio_clip`, `set_clip`, `delete_clip`, `duplicate_clip`, `fire_clip`, `stop_clips` |
 | Notes | `get_notes`, `add_notes`, `edit_notes`, `clear_notes`, `quantize_clip` |
-| Drums | `get_drum_kit`, `write_drum_pattern` |
+| Drums | `get_drum_kit`, `load_drum_kit`, `write_drum_pattern` |
 | Devices | `list_devices`, `get_device_parameters`, `set_device_parameter`, `delete_device` |
 | Browser | `browse`, `search_browser`, `load_from_browser` |
 | Pigments | `list_pigments_presets`, `load_pigments_preset` |
-| Arrangement | `list_arrangement_clips`, `copy_clip_to_arrangement`, `set_clip_automation`, `clear_clip_automation` |
+| Arrangement | `list_arrangement_clips`, `set_arrangement_clip_name`, `copy_clip_to_arrangement`, `create_locator`, `switch_to_arrangement_view`, `set_clip_automation`, `clear_clip_automation` |
 
 The MCP server adds `ableton_bridge_status` and `ableton_reload_tools`.
+
+`create_audio_clip` imports a file into a Session slot or onto the arrangement at a beat. The clip refers to the file rather than copying it, so keep the file, or use Live's Collect All and Save.
 
 Tested with Live 12.4.16 Suite on Windows 11, mcp SDK 2.3, uv 0.12. Opening a different Set makes Live restart the script; that restart has only been tested outside Live.
 
@@ -122,6 +124,9 @@ Found while testing against Live 12.4.7 and 12.4.16:
 - `stop` leaves the arrangement position where it stopped.
 - Live ignores `current_song_time` while stopped, so `play` with `from_beat` sets the start marker instead when the transport isn't running.
 - After Session clips play, tracks ignore the arrangement until Back to Arrangement is pressed. `play` with `arrangement: true` does that.
+- A stopped playhead only moves on Live's next tick, and `set_or_delete_cue` adds a locator only at the playhead. So `create_locator` moves the playhead and replies with `retry_after`, and the MCP server calls it again to add the locator and move the playhead back. A client talking to the bridge directly has to make that second call itself.
+- Locators snap forward to the arrangement grid, which depends on zoom: beat 601.5 became 608. Beats on the grid land exactly, and the reply has a `snapped` note when one moved.
+- Group, return and Main tracks have no arrangement clips; Live raises an error if you ask for them.
 - A Session clip's mixer automation carries over with `copy_clip_to_arrangement`, then holds its last value. End each envelope on the level the track should stay at, or the next section stays at the envelope's last value.
 
 ## Tests

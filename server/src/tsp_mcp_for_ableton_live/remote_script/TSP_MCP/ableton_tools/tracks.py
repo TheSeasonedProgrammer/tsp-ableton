@@ -4,7 +4,7 @@ from ableton_tools._registry import tool
 from ableton_tools import _util as u
 
 
-def _track_info(track):
+def track_info(track):
     kind = u.track_kind(track)
     mixer = track.mixer_device
     info = {
@@ -28,7 +28,7 @@ def _track_info(track):
 
 @tool("get_track", "Details of one track: mixer, devices and which slots hold clips.", {"track": u.TRACK}, ("track",))
 def get_track(args):
-    return _track_info(u.find_track(args["track"]))
+    return track_info(u.find_track(args["track"]))
 
 
 @tool("create_track", "Create a MIDI, audio or return track.",
@@ -48,7 +48,7 @@ def create_track(args):
         track = tracks[index]
     if args.get("name"):
         track.name = args["name"]
-    return _track_info(track)
+    return track_info(track)
 
 
 @tool("duplicate_track", "Duplicate a track, with its clips and devices, right after itself.",
@@ -59,7 +59,7 @@ def duplicate_track(args):
     if index is None:
         raise ValueError("only regular tracks can be duplicated")
     u.song().duplicate_track(index)
-    return _track_info(list(u.song().tracks)[index + 1])
+    return track_info(list(u.song().tracks)[index + 1])
 
 
 @tool("delete_track", "Delete a track and everything on it.",
@@ -111,4 +111,4 @@ def set_track(args):
         u.set_parameter(track.mixer_device.panning, args["pan"])
     for letter, value in args.get("sends", {}).items():
         u.set_parameter(u.mixer_parameter(track, "send " + letter), value)
-    return _track_info(track)
+    return track_info(track)

@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import types
 import unittest
 from pathlib import Path
@@ -130,6 +131,7 @@ class Bridge(unittest.TestCase):
         song = APPLICATION.song
         song.tracks[:] = [fake_live.Track("Drums"), fake_live.Track("Audio", midi=False)]
         song.scenes[:] = [fake_live.Scene("Intro"), fake_live.Scene("Verse")]
+        song.cue_points[:] = []
         song.undo_steps = 0
 
     def test_status_and_tools(self):
@@ -313,6 +315,78 @@ class Bridge(unittest.TestCase):
         self.call("clear_clip_automation", track=0, slot=0, device="mixer", parameter="volume")
         self.assertFalse(clip.envelopes)
 
+    def test_audio_clips(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, "loop.wav")
+            Path(path).write_bytes(b"RIFF")
+            clip = self.call("create_audio_clip", track="Audio", slot=0, file_path=path, name="Loop")
+            self.assertEqual((clip["midi"], clip["name"], clip["file_path"], clip["slot"]), (False, "Loop", path, 0))
+            self.assertIn("already has", self.fails("create_audio_clip", track="Audio", slot=0, file_path=path))
+            placed = self.call("create_audio_clip", track="Audio", beat=16, file_path=path)
+            self.assertEqual((placed["start"], placed["end"]), (16, 20))
+            self.assertIn("not an audio track", self.fails("create_audio_clip", track="Drums", slot=1, file_path=path))
+            self.assertIn("not both", self.fails("create_audio_clip", track="Audio", slot=1, beat=0, file_path=path))
+            self.assertIn("not both", self.fails("create_audio_clip", track="Audio", file_path=path))
+            self.assertIn("absolute", self.fails("create_audio_clip", track="Audio", slot=1, file_path="loop.wav"))
+            self.assertIn("no file", self.fails("create_audio_clip", track="Audio", slot=1, file_path=path + ".missing"))
+
+        self.assertEqual(self.call("list_arrangement_clips", track="Audio")["clips"][0]["index"], 0)
+        renamed = self.call("set_arrangement_clip_name", track="Audio", clip=0, name="Break")
+        self.assertEqual((renamed["name"], renamed["start"]), ("Break", 16))
+        self.assertIn("no arrangement clip 1", self.fails("set_arrangement_clip_name", track="Audio", clip=1, name="X"))
+
+    def call_until_done(self, tool, /, **arguments):
+        """What the MCP server does with retry_after."""
+        for _attempt in range(50):
+            result = self.call(tool, **arguments)
+            if "retry_after" not in result:
+                return result
+            time.sleep(result["retry_after"])
+        self.fail("%s kept asking to be called again" % tool)
+
+    def test_locators_and_view(self):
+        song = APPLICATION.song
+        song.song_time = 4.0
+        # Live only moves a stopped playhead on its next tick, so the first call asks for another.
+        self.assertIn("retry_after", self.call("create_locator", beat=32, name="Drop"))
+        self.assertEqual(self.call_until_done("create_locator", beat=32, name="Drop")["beat"], 32)
+        made = self.call_until_done("create_locator", beat=8)
+        self.assertEqual(made["locators"], [{"name": made["name"], "beat": 8}, {"name": "Drop", "beat": 32}])
+        time.sleep(0.1)
+        self.assertEqual(song.current_song_time, 4.0)
+        # One already there is renamed, not toggled off by set_or_delete_cue.
+        self.assertEqual(self.call("create_locator", beat=32, name="Build")["locators"][1], {"name": "Build", "beat": 32})
+        self.assertEqual(len(self.call("get_session")["locators"]), 2)
+        song.is_playing = True
+        try:
+            self.assertIn("stop the transport", self.fails("create_locator", beat=64))
+        finally:
+            song.is_playing = False
+
+        self.assertEqual(self.call("switch_to_arrangement_view"), {"view": "Arranger"})
+        self.assertEqual(self.call("get_session")["view"], "Arranger")
+
+    def test_load_drum_kit(self):
+        loaded = self.call("load_drum_kit", track="Drums", kit="808 core kit")
+        self.assertEqual((loaded["loaded"], loaded["path"]), ("808 Core Kit.adg", ["drums", "Kits", "808 Core Kit.adg"]))
+        self.assertEqual({p["role"] for p in loaded["pads"]}, {"kick", "snare", "closed_hat", "open_hat"})
+        self.assertEqual(self.call("load_drum_kit", track="Drums", kit="kit")["other_matches"], ["Acoustic Kit.adg"])
+        self.assertIn("no drum kit", self.fails("load_drum_kit", track="Drums", kit="909"))
+        self.assertIn("not a MIDI track", self.fails("load_drum_kit", track="Audio", kit="808"))
+
+    def test_session_snapshot(self):
+        self.call("create_clip", track=0, slot=1, bars=2, name="Bass")
+        self.call("copy_clip_to_arrangement", track=0, slot=1, beat=0)
+        APPLICATION.song.tracks[0].devices.append(fake_live.Device("Reverb"))
+        snapshot = self.call("get_session_snapshot")
+        drums = snapshot["tracks"][0]
+        self.assertEqual((drums["clips"][0]["slot"], drums["clips"][0]["length_beats"]), (1, 8.0))
+        self.assertEqual(drums["arrangement_clips"][0]["end"], 8.0)
+        self.assertNotIn("parameters", drums["devices"][0])
+        self.assertEqual((snapshot["master"]["kind"], snapshot["return_tracks"][0]["name"]), ("master", "A-Reverb"))
+        detailed = self.call("get_session_snapshot", parameters=True)
+        self.assertEqual(detailed["tracks"][0]["devices"][0]["parameters"][1]["name"], "Decay")
+
     def test_play_can_return_to_the_arrangement(self):
         self.call("play")
         self.assertTrue(APPLICATION.song.back_to_arranger)
@@ -384,6 +458,10 @@ class Bridge(unittest.TestCase):
 
             result = rpc(4, "tools/call", {"name": "write_drum_pattern", "arguments": {"track": 0, "slot": 3, "pattern": {"kick": "x..."}}})["result"]
             self.assertIn('"notes_written": 4', result["content"][0]["text"])
+
+            # The server repeats a call that replies with retry_after, so the client sees one call.
+            result = rpc(6, "tools/call", {"name": "create_locator", "arguments": {"beat": 48, "name": "Outro"}})["result"]
+            self.assertEqual(json.loads(result["content"][0]["text"])["name"], "Outro")
 
             # The schema is enforced before anything reaches Live.
             result = rpc(5, "tools/call", {"name": "write_drum_pattern", "arguments": {"track": 0, "slot": -1, "pattern": {"kick": "x"}}})["result"]

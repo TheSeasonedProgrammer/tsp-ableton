@@ -1,4 +1,6 @@
-"""Session View clips."""
+"""Session View clips, and audio files imported as clips."""
+
+import os
 
 from ableton_tools._registry import tool
 from ableton_tools import _util as u
@@ -34,6 +36,44 @@ def create_clip(args):
     if args.get("name"):
         slot.clip.name = args["name"]
     return u.clip_info(slot.clip)
+
+
+@tool("create_audio_clip", "Import an audio file as a clip on an audio track: into an empty Session View slot with slot, "
+                           "or into Arrangement View at a beat with beat. The clip refers to the file, it doesn't copy it.",
+      {"track": u.TRACK,
+       "file_path": {"type": "string", "minLength": 1, "description": "Absolute path to a WAV, AIFF, FLAC, MP3 or other file Live can read."},
+       "slot": u.SLOT,
+       "beat": {"type": "number", "minimum": 0, "description": "Arrangement position, instead of slot."},
+       "name": {"type": "string"}},
+      ("track", "file_path"), write=True)
+def create_audio_clip(args):
+    track = u.find_track(args["track"])
+    if u.track_kind(track) != "audio":
+        raise ValueError("'%s' is not an audio track" % track.name)
+    if track.is_frozen:
+        raise ValueError("'%s' is frozen" % track.name)
+    if ("slot" in args) == ("beat" in args):
+        raise ValueError("give slot or beat, not both")
+    path = args["file_path"]
+    if not os.path.isabs(path):
+        raise ValueError("file_path must be absolute")
+    if not os.path.isfile(path):
+        raise ValueError("no file at %s" % path)
+    if "slot" in args:
+        slot = u.find_slot(track, args["slot"])
+        if slot.has_clip:
+            raise ValueError("slot %d on '%s' already has a clip" % (args["slot"], track.name))
+        clip = slot.create_audio_clip(path)
+    else:
+        clip = track.create_audio_clip(path, float(args["beat"]))
+    if args.get("name"):
+        clip.name = args["name"]
+    info = dict(u.clip_info(clip), file_path=clip.file_path)
+    if "beat" in args:
+        info.update(start=clip.start_time, end=clip.end_time)
+    else:
+        info["slot"] = args["slot"]
+    return info
 
 
 @tool("set_clip", "Change a clip's name, colour, loop, markers or groove. Times are in beats. "

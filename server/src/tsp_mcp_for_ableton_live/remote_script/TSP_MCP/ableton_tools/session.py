@@ -2,6 +2,8 @@
 
 from ableton_tools._registry import tool
 from ableton_tools import _util as u
+from ableton_tools import arrangement
+from ableton_tools import tracks
 
 
 def _track_summary(track, index=None):
@@ -27,15 +29,42 @@ def _state():
         "can_undo": song.can_undo,
         "can_redo": song.can_redo,
         "selected_track": song.view.selected_track.name,
+        "view": application.view.focused_document_view,
         "tracks": [_track_summary(track, index) for index, track in enumerate(song.tracks)],
         "return_tracks": [_track_summary(track) for track in song.return_tracks],
         "scenes": [{"index": index, "name": scene.name} for index, scene in enumerate(song.scenes)],
+        "locators": arrangement.locators(),
     }
 
 
-@tool("get_session", "Overview of the Live Set: tempo, signature, transport, loop, tracks, return tracks and scenes.", warn=True)
+def _snapshot_track(track, parameters):
+    info = tracks.track_info(track)
+    if info["kind"] != "master":
+        info["clips"] = [dict(u.clip_info(slot.clip), slot=index) for index, slot in enumerate(track.clip_slots) if slot.has_clip]
+    # Live raises for the arrangement clips of group, return and master tracks.
+    if info["kind"] in ("midi", "audio"):
+        info["arrangement_clips"] = arrangement.arrangement_clips(track)
+    if parameters:
+        for entry, device in zip(info["devices"], track.devices):
+            entry["parameters"] = [u.parameter_info(parameter, index) for index, parameter in enumerate(device.parameters)]
+    return info
+
+
+@tool("get_session", "Overview of the Live Set: tempo, signature, transport, loop, tracks, return tracks, scenes and locators.", warn=True)
 def get_session(_args):
     return _state()
+
+
+@tool("get_session_snapshot", "Everything get_session returns, with each track's mixer, devices, Session clips and Arrangement clips, "
+                              "and the master track. parameters adds every device's parameters, which makes the reply large.",
+      {"parameters": {"type": "boolean"}}, warn=True)
+def get_session_snapshot(args):
+    song = u.song()
+    parameters = args.get("parameters", False)
+    return dict(_state(),
+                tracks=[_snapshot_track(track, parameters) for track in song.tracks],
+                return_tracks=[_snapshot_track(track, parameters) for track in song.return_tracks],
+                master=_snapshot_track(song.master_track, parameters))
 
 
 @tool("set_session", "Change the tempo, time signature, metronome, global groove amount or arrangement loop.",

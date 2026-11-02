@@ -29,6 +29,8 @@ CONNECT_TIMEOUT = 3.0
 CALL_TIMEOUT = float(os.environ.get("ABLETON_CALL_TIMEOUT", "60"))
 CACHE_FILE = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "tsp-mcp-for-ableton-live" / "tools.json"
 LINE_LIMIT = 64 * 1024 * 1024
+# Calls repeated for a tool reply holding retry_after.
+RETRIES = 20
 
 LOCAL_TOOLS = [
     types.Tool(
@@ -181,7 +183,15 @@ async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestPara
         errors = validation_errors(name, arguments)
         if errors:
             return _text(f"invalid arguments for {name}: " + "; ".join(errors), is_error=True)
-        return _text(await bridge_call("call_tool", {"name": name, "arguments": arguments}))
+        request = {"name": name, "arguments": arguments}
+        result = await bridge_call("call_tool", request)
+        # A tool that needs Live to finish something on a later tick asks to be called again.
+        for _attempt in range(RETRIES):
+            if not (isinstance(result, dict) and result.get("retry_after")):
+                break
+            await asyncio.sleep(min(float(result["retry_after"]), 2.0))
+            result = await bridge_call("call_tool", request)
+        return _text(result)
     except (BridgeUnavailable, BridgeError) as error:
         return _text(str(error), is_error=True)
 

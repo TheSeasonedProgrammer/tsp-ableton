@@ -1,14 +1,17 @@
 """Drum Racks and step-pattern beats."""
 
+import os
+
 from ableton_tools._registry import tool
 from ableton_tools import _drums as d
 from ableton_tools import _util as u
+from ableton_tools import browser
+
+# Enough candidates to find an exact name among the near misses.
+KIT_CANDIDATES = 50
 
 
-@tool("get_drum_kit", "List the filled pads of the track's Drum Rack with their pitch and the role each name suggests.",
-      {"track": u.TRACK}, ("track",))
-def get_drum_kit(args):
-    track = u.find_track(args["track"])
+def _kit(track):
     rack = u.find_drum_rack(track.devices)
     if rack is None:
         return {"rack": None, "pads": []}
@@ -16,6 +19,34 @@ def get_drum_kit(args):
         {"note": pad.note, "note_name": u.note_name(pad.note), "name": pad.name, "role": d.pad_role(pad.name), "mute": pad.mute, "solo": pad.solo}
         for pad in u.filled_pads(rack)
     ]}
+
+
+@tool("get_drum_kit", "List the filled pads of the track's Drum Rack with their pitch and the role each name suggests.",
+      {"track": u.TRACK}, ("track",))
+def get_drum_kit(args):
+    return _kit(u.find_track(args["track"]))
+
+
+@tool("load_drum_kit", "Find a drum kit in the browser's Drums category by name and load it onto a MIDI track, "
+                       "replacing the track's instrument. An exact name wins, otherwise the match nearest the top. "
+                       "Replies with the kit's pads. This selects the track.",
+      {"track": u.TRACK,
+       "kit": {"type": "string", "minLength": 1, "description": "Kit name or words from it, such as \"909\" or \"808 Core Kit\"."}},
+      ("track", "kit"), write=True)
+def load_drum_kit(args):
+    track = u.find_track(args["track"])
+    u.require_midi_track(track)
+    found, _visited, truncated = browser.search(["drums"], args["kit"], KIT_CANDIDATES)
+    kits = [item for item in found if item["name"].lower().endswith(".adg")]
+    if not kits:
+        more = "; the search stopped early, so try more of the name" if truncated else ""
+        raise ValueError("no drum kit matching '%s' in the Drums category%s" % (args["kit"], more))
+    wanted = args["kit"].lower()
+    exact = [item for item in kits if os.path.splitext(item["name"])[0].lower() == wanted]
+    chosen = (exact or kits)[0]
+    browser.load(track, chosen["path"])
+    return dict(_kit(track), loaded=chosen["name"], path=chosen["path"], track=track.name,
+                other_matches=[item["name"] for item in kits if item is not chosen][:5])
 
 
 @tool("write_drum_pattern",

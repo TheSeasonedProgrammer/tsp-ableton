@@ -165,5 +165,5 @@ def load_pigments_preset(args):
         browser._item_at(path)
     except ValueError:
         return {"loaded": False, "preset": preset["path"], "message": "Live's browser hasn't found the preset yet. Call again in a few seconds."}
-    browser.load_from_browser({"track": track.name, "path": path})
+    browser.load(track, path)
     return {"loaded": True, "preset": preset["path"], "track": track.name, "devices": [device.name for device in track.devices]}

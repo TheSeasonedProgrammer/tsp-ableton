@@ -47,22 +47,12 @@ def browse(args):
     return {"items": [_item_info(child, path + [child.name]) for child in _item_at(path).children]}
 
 
-@tool("search_browser", "Find browser items by name, nearest the top of the category first. Every word must appear in the name. "
-                        "Stops after 2 seconds and says so in truncated; narrow the search with path if it does.",
-      {"query": {"type": "string", "minLength": 1},
-       "category": {"type": "string", "enum": list(CATEGORIES), "description": "Where to search, such as drums for kits."},
-       "path": PATH,
-       "limit": {"type": "integer", "minimum": 1, "maximum": 200, "description": "Default 30."}},
-      ("query",))
-def search_browser(args):
-    if "path" in args:
-        start = args["path"]
-    elif "category" in args:
-        start = [args["category"]]
-    else:
-        raise ValueError("give category or path")
-    words = args["query"].lower().split()
-    limit = args.get("limit", 30)
+def search(start, query, limit):
+    """Loadable items under the start path whose names hold every word of query, breadth first.
+
+    Returns the results as from _item_info, how many items were visited, and whether the search stopped early.
+    """
+    words = query.lower().split()
     deadline = time.monotonic() + SEARCH_SECONDS
     pending = collections.deque([(_item_at(start), start)])
     visited = 0
@@ -81,7 +71,35 @@ def search_browser(args):
                     break
             if child.is_folder:
                 pending.append((child, child_path))
-    return {"results": results, "visited": visited, "truncated": bool(pending) and len(results) < limit}
+    return results, visited, bool(pending) and len(results) < limit
+
+
+def load(track, path):
+    """Load the item at path onto track. load_item loads onto the selected track, so select it first."""
+    item = _item_at(path)
+    if not item.is_loadable:
+        raise ValueError("'%s' can't be loaded; browse inside it" % item.name)
+    u.song().view.selected_track = track
+    u.application().browser.load_item(item)
+    return item
+
+
+@tool("search_browser", "Find browser items by name, nearest the top of the category first. Every word must appear in the name. "
+                        "Stops after 2 seconds and says so in truncated; narrow the search with path if it does.",
+      {"query": {"type": "string", "minLength": 1},
+       "category": {"type": "string", "enum": list(CATEGORIES), "description": "Where to search, such as drums for kits."},
+       "path": PATH,
+       "limit": {"type": "integer", "minimum": 1, "maximum": 200, "description": "Default 30."}},
+      ("query",))
+def search_browser(args):
+    if "path" in args:
+        start = args["path"]
+    elif "category" in args:
+        start = [args["category"]]
+    else:
+        raise ValueError("give category or path")
+    results, visited, truncated = search(start, args["query"], args.get("limit", 30))
+    return {"results": results, "visited": visited, "truncated": truncated}
 
 
 @tool("load_from_browser", "Load a browser item onto a track: an instrument, effect, Drum Rack kit, plugin or sample. "
@@ -89,9 +107,5 @@ def search_browser(args):
       {"track": u.TRACK, "path": PATH}, ("track", "path"), write=True)
 def load_from_browser(args):
     track = u.find_track(args["track"])
-    item = _item_at(args["path"])
-    if not item.is_loadable:
-        raise ValueError("'%s' can't be loaded; browse inside it" % item.name)
-    u.song().view.selected_track = track
-    u.application().browser.load_item(item)
+    item = load(track, args["path"])
     return {"loaded": item.name, "track": track.name, "devices": [device.name for device in track.devices]}
