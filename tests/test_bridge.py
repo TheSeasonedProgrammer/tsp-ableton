@@ -366,6 +366,17 @@ class Bridge(unittest.TestCase):
         finally:
             song.is_playing = False
 
+        # Past the end of the arrangement, a temporary clip makes room and is gone afterwards.
+        drums = song.tracks[0]
+        clips_before = list(drums.arrangement_clips)
+        self.assertLess(song.song_length, 5400)
+        far = self.call_until_done("create_locator", beat=5400, name="End")
+        self.assertEqual((far["name"], far["beat"]), ("End", 5400))
+        self.assertNotIn("temporary_clip_left", far)
+        self.assertEqual(drums.arrangement_clips, clips_before)
+        time.sleep(0.1)
+        self.assertEqual(song.current_song_time, 4.0)
+
         self.assertEqual(self.call("switch_to_arrangement_view"), {"view": "Arranger"})
         self.assertEqual(self.call("get_session")["view"], "Arranger")
 

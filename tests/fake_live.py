@@ -182,6 +182,13 @@ class Track:
     def duplicate_clip_to_arrangement(self, clip, time):
         self.arrangement_clips.append(Clip(clip.length, time))
 
+    def create_midi_clip(self, start_time, length):
+        self.arrangement_clips.append(Clip(length, start_time))
+        return self.arrangement_clips[-1]
+
+    def delete_clip(self, clip):
+        self.arrangement_clips.remove(clip)
+
     def create_audio_clip(self, path, time):
         self.arrangement_clips.append(audio_clip(path, time))
         return self.arrangement_clips[-1]
@@ -232,8 +239,16 @@ class Song:
     def current_song_time(self):
         return self.song_time
 
+    @property
+    def song_length(self):
+        """Like Live: the arrangement runs to its last clip or the loop's end, whichever is later."""
+        ends = [clip.end_time for track in self.tracks for clip in track.arrangement_clips]
+        return max(ends + [self.loop_start + self.loop_length])
+
     @current_song_time.setter
     def current_song_time(self, value):
+        if value > self.song_length:
+            raise RuntimeError("Cannot set the Songtime behind the Songlength")
         # Like Live, a stopped playhead only moves on the next tick.
         if self.is_playing:
             self.song_time = value

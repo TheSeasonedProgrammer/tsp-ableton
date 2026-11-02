@@ -10,6 +10,10 @@ TARGET = {
 }
 # Where create_locator found the playhead, by target beat, until the locator is added.
 _return_to = {}
+# Empty clips create_locator placed after the end of the arrangement, by target beat, as (track, clip).
+# Live won't move the playhead past the arrangement's end, so these make room until the locator is added.
+_padding = {}
+PADDING_BEATS = 4.0
 
 
 def _target_parameter(args):
@@ -53,10 +57,37 @@ def _cue_at(beat):
     return next((cue for cue in u.song().cue_points if abs(cue.time - beat) < 1e-6), None)
 
 
+def _add_padding(song, beat):
+    """Put an empty MIDI clip from the arrangement's end to past beat, on the first MIDI track that takes one."""
+    start = song.song_length
+    for track in song.tracks:
+        if not track.has_midi_input or track.is_frozen:
+            continue
+        clip = track.create_midi_clip(start, beat - start + PADDING_BEATS)
+        _padding[beat] = (track, clip)
+        return
+    raise ValueError("beat %s is past the end of the arrangement (beat %s), and there's no MIDI track to put a "
+                     "temporary clip on to make room; add a MIDI track or a clip that reaches that far" % (beat, start))
+
+
+def _remove_padding(beat):
+    """Delete the clip _add_padding placed for beat. Returns an error message, or None."""
+    track, clip = _padding.pop(beat, (None, None))
+    if track is None:
+        return None
+    try:
+        track.delete_clip(clip)
+    except Exception as error:  # noqa: BLE001 - reported to the user rather than losing the locator
+        return "couldn't delete the temporary clip on '%s' at beat %s (%s); delete it in Arrangement View" % (
+            track.name, clip.start_time, error)
+    return None
+
+
 @tool("create_locator", "Add a named locator (marker) to the arrangement at a beat, or rename the one already there. "
                         "Live only adds locators at the playhead, so this moves the playhead there and back, "
-                        "and refuses while the transport is running. Live snaps a beat between grid lines forward to the "
-                        "arrangement grid; the reply says where the locator landed. "
+                        "and refuses while the transport is running. A beat past the end of the arrangement works too: "
+                        "a temporary empty MIDI clip makes room and is deleted again. Live snaps a beat between grid "
+                        "lines forward to the arrangement grid; the reply says where the locator landed. "
                         "A reply with retry_after means the playhead is still moving: call again with the same arguments.",
       {"beat": {"type": "number", "minimum": 0},
        "name": {"type": "string"}},
@@ -69,11 +100,16 @@ def create_locator(args):
         if song.is_playing:
             raise ValueError("stop the transport first; adding a locator moves the playhead")
         if abs(song.current_song_time - beat) > 1e-6:
+            if beat >= song.song_length and beat not in _padding:
+                # Live extends the arrangement on its next tick, so the playhead moves on the next call.
+                _add_padding(song, beat)
+                return {"retry_after": 0.1, "message": "making room past the end of the arrangement; call again"}
             # Live moves the playhead on its next tick, so the locator is added by the next call.
             _return_to.setdefault(beat, song.current_song_time)
             song.current_song_time = beat
             return {"retry_after": 0.1, "message": "moving the playhead to beat %s; call again to add the locator" % beat}
         if song.is_cue_point_selected():
+            _remove_padding(beat)
             raise ValueError("the playhead is on a locator; this would delete it")
         times = [cue.time for cue in song.cue_points]
         song.set_or_delete_cue()
@@ -81,12 +117,18 @@ def create_locator(args):
         back = _return_to.pop(beat, None)
         if back is not None:
             song.current_song_time = back
+        padding_error = _remove_padding(beat)
         if not added:
             raise ValueError("Live didn't add a locator; there may already be one where it snapped to")
         cue = added[0]
+    else:
+        padding_error = None
     if args.get("name"):
         cue.name = args["name"]
     result = {"name": cue.name, "beat": cue.time, "locators": locators()}
+    if padding_error:
+        # Not "warning": the Limiter check replaces that key.
+        result["temporary_clip_left"] = padding_error
     if abs(cue.time - beat) > 1e-6:
         result["snapped"] = "Live put it on the arrangement grid at beat %s; zoom in for a finer grid" % cue.time
     return result
