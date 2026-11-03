@@ -116,8 +116,14 @@ def clip_length(args):
     return None
 
 
+def set_warping(clip, warping):
+    if clip.is_midi_clip:
+        raise ValueError("'%s' is a MIDI clip; only audio clips are warped" % clip.name)
+    clip.warping = warping
+
+
 def clip_info(clip):
-    return {
+    info = {
         "name": clip.name,
         "midi": clip.is_midi_clip,
         "length_beats": clip.length,
@@ -130,6 +136,9 @@ def clip_info(clip):
         "groove": clip.groove.name if clip.has_groove else None,
         "playing": clip.is_playing,
     }
+    if not clip.is_midi_clip:
+        info["warping"] = clip.warping
+    return info
 
 
 def add_notes(clip, notes):

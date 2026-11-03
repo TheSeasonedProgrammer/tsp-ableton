@@ -23,9 +23,15 @@ def _target_parameter(args):
     return u.find_parameter(u.find_device(track, args["device"]), args["parameter"])
 
 
+def _arrangement_clip_info(index, clip):
+    info = {"index": index, "name": clip.name, "start": clip.start_time, "end": clip.end_time, "midi": clip.is_midi_clip}
+    if not clip.is_midi_clip:
+        info["warping"] = clip.warping
+    return info
+
+
 def arrangement_clips(track):
-    return [{"index": index, "name": clip.name, "start": clip.start_time, "end": clip.end_time, "midi": clip.is_midi_clip}
-            for index, clip in enumerate(track.arrangement_clips)]
+    return [_arrangement_clip_info(index, clip) for index, clip in enumerate(track.arrangement_clips)]
 
 
 def locators():
@@ -38,19 +44,25 @@ def list_arrangement_clips(args):
     return {"track": track.name, "clips": arrangement_clips(track)}
 
 
-@tool("set_arrangement_clip_name", "Rename a clip in Arrangement View. clip is its index from list_arrangement_clips.",
+@tool("set_arrangement_clip", "Rename a clip in Arrangement View or turn its warping on or off. "
+                               "clip is its index from list_arrangement_clips.",
       {"track": u.TRACK,
        "clip": {"type": "integer", "minimum": 0},
-       "name": {"type": "string"}},
-      ("track", "clip", "name"), write=True)
-def set_arrangement_clip_name(args):
+       "name": {"type": "string"},
+       "warping": {"type": "boolean", "description": "Audio clips only. false plays the file at its own speed, "
+                                                     "which keeps long sustained sounds free of time-stretching artifacts."}},
+      ("track", "clip"), write=True)
+def set_arrangement_clip(args):
     track = u.find_track(args["track"])
     clips = list(track.arrangement_clips)
     if args["clip"] >= len(clips):
         raise ValueError("'%s' has no arrangement clip %d; it has %d" % (track.name, args["clip"], len(clips)))
     clip = clips[args["clip"]]
-    clip.name = args["name"]
-    return {"index": args["clip"], "name": clip.name, "start": clip.start_time, "end": clip.end_time}
+    if "warping" in args:
+        u.set_warping(clip, args["warping"])
+    if "name" in args:
+        clip.name = args["name"]
+    return _arrangement_clip_info(args["clip"], clip)
 
 
 def _cue_at(beat):

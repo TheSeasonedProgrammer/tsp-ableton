@@ -76,12 +76,14 @@ def create_audio_clip(args):
     return info
 
 
-@tool("set_clip", "Change a clip's name, colour, loop, markers or groove. Times are in beats. "
+@tool("set_clip", "Change a clip's name, colour, loop, markers, groove or warping. Times are in beats. "
                   "groove is the name of a groove in the Groove Pool (see get_session). "
                   "Live's API can apply a groove but not remove one; that needs Clip View.",
       dict(CLIP_REF,
            name={"type": "string"},
            color=u.COLOR,
+           warping={"type": "boolean", "description": "Audio clips only. false plays the file at its own speed, "
+                                                      "which keeps long sustained sounds free of time-stretching artifacts."},
            looping={"type": "boolean"},
            loop_start={"type": "number"},
            loop_end={"type": "number"},
@@ -95,6 +97,8 @@ def set_clip(args):
         clip.name = args["name"]
     if "color" in args:
         clip.color = u.color_value(args["color"])
+    if "warping" in args:
+        u.set_warping(clip, args["warping"])
     if "looping" in args:
         clip.looping = args["looping"]
     # Live rejects a start past the current end, and the reverse, so order matters.

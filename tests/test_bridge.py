@@ -324,6 +324,7 @@ class Bridge(unittest.TestCase):
             Path(path).write_bytes(b"RIFF")
             clip = self.call("create_audio_clip", track="Audio", slot=0, file_path=path, name="Loop")
             self.assertEqual((clip["midi"], clip["name"], clip["file_path"], clip["slot"]), (False, "Loop", path, 0))
+            self.assertFalse(self.call("set_clip", track="Audio", slot=0, warping=False)["warping"])
             self.assertIn("already has", self.fails("create_audio_clip", track="Audio", slot=0, file_path=path))
             placed = self.call("create_audio_clip", track="Audio", beat=16, file_path=path)
             self.assertEqual((placed["start"], placed["end"]), (16, 20))
@@ -333,10 +334,15 @@ class Bridge(unittest.TestCase):
             self.assertIn("absolute", self.fails("create_audio_clip", track="Audio", slot=1, file_path="loop.wav"))
             self.assertIn("no file", self.fails("create_audio_clip", track="Audio", slot=1, file_path=path + ".missing"))
 
-        self.assertEqual(self.call("list_arrangement_clips", track="Audio")["clips"][0]["index"], 0)
-        renamed = self.call("set_arrangement_clip_name", track="Audio", clip=0, name="Break")
-        self.assertEqual((renamed["name"], renamed["start"]), ("Break", 16))
-        self.assertIn("no arrangement clip 1", self.fails("set_arrangement_clip_name", track="Audio", clip=1, name="X"))
+        listed = self.call("list_arrangement_clips", track="Audio")["clips"][0]
+        self.assertEqual((listed["index"], listed["warping"]), (0, True))
+        renamed = self.call("set_arrangement_clip", track="Audio", clip=0, name="Break", warping=False)
+        self.assertEqual((renamed["name"], renamed["start"], renamed["warping"]), ("Break", 16, False))
+        self.assertIn("no arrangement clip 1", self.fails("set_arrangement_clip", track="Audio", clip=1, name="X"))
+        self.call("create_clip", track="Drums", slot=0)
+        self.call("copy_clip_to_arrangement", track="Drums", slot=0, beat=0)
+        self.assertIn("MIDI clip", self.fails("set_arrangement_clip", track="Drums", clip=0, warping=False))
+        self.assertIn("MIDI clip", self.fails("set_clip", track="Drums", slot=0, warping=False))
 
     def call_until_done(self, tool, /, **arguments):
         """What the MCP server does with retry_after."""

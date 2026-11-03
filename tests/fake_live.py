@@ -155,6 +155,7 @@ def audio_clip(path, start_time=0.0):
     clip = Clip(4.0, start_time)
     clip.is_midi_clip = False
     clip.file_path = path
+    clip.warping = True
     return clip
 
 
