@@ -44,6 +44,28 @@ def list_arrangement_clips(args):
     return {"track": track.name, "clips": arrangement_clips(track)}
 
 
+def _find_arrangement_clip(args):
+    track = u.find_track(args["track"])
+    clips = list(track.arrangement_clips)
+    if args["clip"] >= len(clips):
+        raise ValueError("'%s' has no arrangement clip %d; it has %d" % (track.name, args["clip"], len(clips)))
+    return track, clips[args["clip"]]
+
+
+@tool("delete_arrangement_clip", "Delete a clip from Arrangement View. clip is its index from list_arrangement_clips; "
+                                  "the clips after it move down one index.",
+      {"track": u.TRACK,
+       "clip": {"type": "integer", "minimum": 0},
+       "confirm": u.CONFIRM},
+      ("track", "clip", "confirm"), write=True)
+def delete_arrangement_clip(args):
+    u.require_confirm(args, "delete_arrangement_clip")
+    track, clip = _find_arrangement_clip(args)
+    deleted = {"deleted": clip.name, "start": clip.start_time, "end": clip.end_time}
+    track.delete_clip(clip)
+    return deleted
+
+
 @tool("set_arrangement_clip", "Rename a clip in Arrangement View or turn its warping on or off. "
                                "clip is its index from list_arrangement_clips.",
       {"track": u.TRACK,
@@ -53,11 +75,7 @@ def list_arrangement_clips(args):
                                                      "which keeps long sustained sounds free of time-stretching artifacts."}},
       ("track", "clip"), write=True)
 def set_arrangement_clip(args):
-    track = u.find_track(args["track"])
-    clips = list(track.arrangement_clips)
-    if args["clip"] >= len(clips):
-        raise ValueError("'%s' has no arrangement clip %d; it has %d" % (track.name, args["clip"], len(clips)))
-    clip = clips[args["clip"]]
+    _track, clip = _find_arrangement_clip(args)
     if "warping" in args:
         u.set_warping(clip, args["warping"])
     if "name" in args:

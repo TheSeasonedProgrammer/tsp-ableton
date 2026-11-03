@@ -339,6 +339,10 @@ class Bridge(unittest.TestCase):
         renamed = self.call("set_arrangement_clip", track="Audio", clip=0, name="Break", warping=False)
         self.assertEqual((renamed["name"], renamed["start"], renamed["warping"]), ("Break", 16, False))
         self.assertIn("no arrangement clip 1", self.fails("set_arrangement_clip", track="Audio", clip=1, name="X"))
+        self.assertIn("confirm", self.fails("delete_arrangement_clip", track="Audio", clip=0))
+        self.assertEqual(self.call("delete_arrangement_clip", track="Audio", clip=0, confirm=True),
+                         {"deleted": "Break", "start": 16, "end": 20})
+        self.assertEqual(self.call("list_arrangement_clips", track="Audio")["clips"], [])
         self.call("create_clip", track="Drums", slot=0)
         self.call("copy_clip_to_arrangement", track="Drums", slot=0, beat=0)
         self.assertIn("MIDI clip", self.fails("set_arrangement_clip", track="Drums", clip=0, warping=False))
