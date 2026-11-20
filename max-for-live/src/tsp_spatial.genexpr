@@ -1,0 +1,112 @@
+// TSP Spatial: places a stereo signal and measures the result.
+// in1, in2: left and right. out1, out2: the placed signal.
+// out3 to out13: running measurements of the output, read by snapshot~ and sent to the MCP server.
+
+Param azimuth(0, min=-90, max=90);    // degrees, negative is left
+Param width(100, min=0, max=200);     // percent of the original side signal
+Param distance(0, min=0, max=100);    // percent: quieter and duller further away
+
+History az_s(0), width_s(100), dist_s(0);
+History air_l(0), air_r(0);
+History peak_l(0), peak_r(0);
+History ms_l(0), ms_r(0), ms_lr(0), ms_mid(0), ms_side(0), ms_low(0), ms_high(0);
+History low_lp(0), high_lp(0);
+History k_ms(0);
+// K-weighting (ITU-R BS.1770) as two biquads per channel, direct form I.
+History s1x1l(0), s1x2l(0), s1y1l(0), s1y2l(0), s2x1l(0), s2x2l(0), s2y1l(0), s2y2l(0);
+History s1x1r(0), s1x2r(0), s1y1r(0), s1y2r(0), s2x1r(0), s2x2r(0), s2y1r(0), s2y2r(0);
+
+// Parameter smoothing over about 20 ms, so moves don't click.
+smooth = 1 - exp(-1 / (0.02 * samplerate));
+az_s = az_s + (azimuth - az_s) * smooth;
+width_s = width_s + (width - width_s) * smooth;
+dist_s = dist_s + (distance - dist_s) * smooth;
+
+// Width: scale the side signal.
+mid = (in1 + in2) * 0.5;
+side = (in1 - in2) * 0.5 * (width_s / 100);
+wl = mid + side;
+wr = mid - side;
+
+// Azimuth: constant-power balance, unity in the centre.
+angle = (az_s / 90 + 1) * pi / 4;
+pl = wl * min(1, sqrt(2) * cos(angle));
+pr = wr * min(1, sqrt(2) * sin(angle));
+
+// Distance: up to 12 dB quieter and a low-pass falling from 20 kHz to 2 kHz.
+d = dist_s / 100;
+gain = 1 / (1 + 3 * d);
+cutoff = 20000 * pow(0.1, d);
+air = exp(-twopi * min(cutoff, samplerate * 0.45) / samplerate);
+air_l = air_l * air + pl * (1 - air);
+air_r = air_r * air + pr * (1 - air);
+o1 = air_l * gain;
+o2 = air_r * gain;
+out1 = o1;
+out2 = o2;
+
+// Measurements. Peaks fall back over about 300 ms; mean squares average over about 300 ms.
+release = exp(-1 / (0.3 * samplerate));
+peak_l = max(abs(o1), peak_l * release);
+peak_r = max(abs(o2), peak_r * release);
+avg = exp(-1 / (0.3 * samplerate));
+m = (o1 + o2) * 0.5;
+s = (o1 - o2) * 0.5;
+ms_l = ms_l * avg + o1 * o1 * (1 - avg);
+ms_r = ms_r * avg + o2 * o2 * (1 - avg);
+ms_lr = ms_lr * avg + o1 * o2 * (1 - avg);
+ms_mid = ms_mid * avg + m * m * (1 - avg);
+ms_side = ms_side * avg + s * s * (1 - avg);
+
+// Bands of the mid (mono) signal: below 150 Hz and above 5 kHz.
+low_c = exp(-twopi * 150 / samplerate);
+low_lp = low_lp * low_c + m * (1 - low_c);
+ms_low = ms_low * avg + low_lp * low_lp * (1 - avg);
+high_c = exp(-twopi * min(5000, samplerate * 0.45) / samplerate);
+high_lp = high_lp * high_c + m * (1 - high_c);
+hp = m - high_lp;
+ms_high = ms_high * avg + hp * hp * (1 - avg);
+
+// K-weighting coefficients for the current sample rate.
+k1 = tan(pi * 1681.974450955533 / samplerate);
+q1 = 0.7071752369554196;
+vh = pow(10, 3.999843853973347 / 20);
+vb = pow(vh, 0.4996667741545416);
+a01 = 1 + k1 / q1 + k1 * k1;
+b10 = (vh + vb * k1 / q1 + k1 * k1) / a01;
+b11 = 2 * (k1 * k1 - vh) / a01;
+b12 = (vh - vb * k1 / q1 + k1 * k1) / a01;
+a11 = 2 * (k1 * k1 - 1) / a01;
+a12 = (1 - k1 / q1 + k1 * k1) / a01;
+k2 = tan(pi * 38.13547087602444 / samplerate);
+q2 = 0.5003270373238773;
+a02 = 1 + k2 / q2 + k2 * k2;
+a21 = 2 * (k2 * k2 - 1) / a02;
+a22 = (1 - k2 / q2 + k2 * k2) / a02;
+
+y1l = b10 * o1 + b11 * s1x1l + b12 * s1x2l - a11 * s1y1l - a12 * s1y2l;
+s1x2l = s1x1l; s1x1l = o1; s1y2l = s1y1l; s1y1l = y1l;
+y2l = y1l - 2 * s2x1l + s2x2l - a21 * s2y1l - a22 * s2y2l;
+s2x2l = s2x1l; s2x1l = y1l; s2y2l = s2y1l; s2y1l = y2l;
+
+y1r = b10 * o2 + b11 * s1x1r + b12 * s1x2r - a11 * s1y1r - a12 * s1y2r;
+s1x2r = s1x1r; s1x1r = o2; s1y2r = s1y1r; s1y1r = y1r;
+y2r = y1r - 2 * s2x1r + s2x2r - a21 * s2y1r - a22 * s2y2r;
+s2x2r = s2x1r; s2x1r = y1r; s2y2r = s2y1r; s2y1r = y2r;
+
+// Momentary loudness averages over 400 ms; this approximates the window with an exponential.
+momentary = exp(-1 / (0.4 * samplerate));
+k_ms = k_ms * momentary + (y2l * y2l + y2r * y2r) * (1 - momentary);
+
+out3 = peak_l;
+out4 = peak_r;
+out5 = ms_l;
+out6 = ms_r;
+out7 = ms_lr;
+out8 = ms_mid;
+out9 = ms_side;
+out10 = ms_low;
+out11 = ms_high;
+out12 = k_ms;
+// Non-zero only while gen~ compiled and the audio engine runs.
+out13 = samplerate;
