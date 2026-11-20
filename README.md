@@ -5,6 +5,8 @@
 
 Tools that let Claude and other [MCP](https://modelcontextprotocol.io) clients work inside Ableton Live 12: build tracks, write clips and drum patterns, load instruments and presets, arrange a song, and measure what it sounds like.
 
+Made by [The Seasoned Programmer](https://the-seasoned-programmer.com/).
+
 | Folder | What it is |
 |---|---|
 | [`mcp/`](mcp) | **TSP MCP for Ableton Live**: an MCP server plus a Live Remote Script, with 57 tools for sessions, tracks, clips, notes, drums, devices, the browser, the arrangement, and Pigments and Serum 2 presets. |
