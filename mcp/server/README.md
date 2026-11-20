@@ -11,3 +11,5 @@ uvx tsp-mcp-for-ableton-live install
 Restart Live, open Settings > Link, Tempo & MIDI, and in an empty Control Surface slot pick **TSP MCP** with Input and Output on None.
 
 To remove it, run `uvx tsp-mcp-for-ableton-live uninstall`.
+
+Licensed under the Apache License, Version 2.0.

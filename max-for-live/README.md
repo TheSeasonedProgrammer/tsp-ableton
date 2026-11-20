@@ -43,3 +43,7 @@ If you edit the device in Max and save it, your changes are in the `.amxd` only,
 - `live.observer` quotes track names that contain spaces. The MCP server removes the quotes.
 
 Tested with Live 12.4.16 Suite and its bundled Max 9 on Windows 11.
+
+## License
+
+Apache License 2.0. See [LICENSE](../LICENSE).

@@ -161,3 +161,7 @@ uv run --no-project --python 3.11 python tests/live_check.py
 ```
 
 That needs a running Live with the script enabled. It adds a temporary track and removes it afterwards, so use a Set you don't mind changing.
+
+## License
+
+Apache License 2.0. See [LICENSE](../LICENSE).
