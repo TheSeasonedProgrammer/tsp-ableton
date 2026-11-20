@@ -1,5 +1,8 @@
 # TSP for Ableton Live
 
+[![Tests](https://github.com/TheSeasonedProgrammer/tsp-ableton/actions/workflows/tests.yml/badge.svg)](https://github.com/TheSeasonedProgrammer/tsp-ableton/actions/workflows/tests.yml)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+
 Tools that let Claude and other [MCP](https://modelcontextprotocol.io) clients work inside Ableton Live 12: build tracks, write clips and drum patterns, load instruments and presets, arrange a song, and measure what it sounds like.
 
 | Folder | What it is |
