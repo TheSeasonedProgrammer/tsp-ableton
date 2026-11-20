@@ -131,8 +131,8 @@ That builds `devices/TSP Spatial.amxd` and copies it to `User Library/TSP MCP/De
 ### Working from a checkout
 
 ```
-git clone <this repo>
-cd <repo>/mcp
+git clone https://github.com/TheSeasonedProgrammer/tsp-ableton.git
+cd tsp-ableton/mcp
 uv run --directory server tsp-mcp-for-ableton-live install --dev
 ```
 

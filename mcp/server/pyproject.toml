@@ -18,3 +18,8 @@ tsp-mcp-for-ableton-live = "tsp_mcp_for_ableton_live.cli:main"
 [build-system]
 requires = ["uv_build>=0.8,<0.13"]
 build-backend = "uv_build"
+
+[project.urls]
+Homepage = "https://github.com/TheSeasonedProgrammer/tsp-ableton"
+Repository = "https://github.com/TheSeasonedProgrammer/tsp-ableton"
+Issues = "https://github.com/TheSeasonedProgrammer/tsp-ableton/issues"
