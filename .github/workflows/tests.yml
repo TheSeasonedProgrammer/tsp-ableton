@@ -1,0 +1,52 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  mcp:
+    name: MCP server (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    defaults:
+      run:
+        working-directory: mcp
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.3
+        with:
+          enable-cache: true
+          cache-dependency-glob: mcp/server/uv.lock
+      # The tests run the Remote Script on Python 3.11, as Live does, and start
+      # the real MCP server (Python 3.12+) through uv run.
+      - name: Run tests
+        run: uv run --no-project --python 3.11 python -m unittest discover -s tests -v
+
+  max-for-live:
+    name: TSP Spatial build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: max-for-live
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.3
+      - name: Run tests
+        run: uv run --no-project --python 3.11 python -m unittest discover -s tests -v
+      - name: Check the committed device matches the source
+        run: |
+          uv run --no-project --python 3.11 python build.py
+          git diff --exit-code -- devices
