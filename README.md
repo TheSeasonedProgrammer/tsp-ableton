@@ -188,6 +188,21 @@ python -m unittest discover -s tests
 
 The detailed docs, including every tool, conventions, and the quirks of Live's API, are in [`mcp/README.md`](mcp/README.md) and [`max-for-live/README.md`](max-for-live/README.md).
 
+## Releasing
+
+The MCP server is published to PyPI as [`tsp-mcp-for-ableton-live`](https://pypi.org/project/tsp-mcp-for-ableton-live/), which is what `uvx` installs.
+
+```mermaid
+flowchart LR
+    A["Bump version in<br/>mcp/server/pyproject.toml"] --> B["Push to main"]
+    B --> C["Publish a GitHub release<br/>tagged vX.Y.Z"]
+    C --> D["Tests run"]
+    D --> E["Tag checked against version,<br/>package built"]
+    E --> F["Uploaded to PyPI<br/>(trusted publishing)"]
+```
+
+The installer registers the exact installed version with the MCP client, so every release needs a new version number, and the tag must be `v` plus that version.
+
 ## License
 
 Licensed under the [Apache License, Version 2.0](LICENSE). See [NOTICE](NOTICE).
