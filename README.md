@@ -145,6 +145,7 @@ uv run --directory server tsp-mcp-for-ableton-live install --dev
 
 | Variable | Default | Used for |
 |---|---|---|
+| `ABLETON_BRIDGE_HOST` | `127.0.0.1` | Address the MCP server connects to for the Remote Script, and listens on for TSP Spatial. The Remote Script and TSP Spatial always use 127.0.0.1, so leave this alone unless you change those too. |
 | `ABLETON_BRIDGE_PORT` | `8768` | TCP between the MCP server and the Remote Script |
 | `ABLETON_ANALYSIS_PORT` | `8769` | UDP measurements from TSP Spatial (the device has 8769 built in) |
 | `SERUM2_PRESETS` | from Serum's preferences | Folder holding `.SerumPreset` files |
