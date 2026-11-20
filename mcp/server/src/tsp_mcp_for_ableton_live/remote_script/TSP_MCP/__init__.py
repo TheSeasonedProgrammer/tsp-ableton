@@ -242,9 +242,14 @@ def start_server():
     global _listener
     if _listener is not None:
         return
-    # No SO_REUSEADDR: on Windows it would let two servers share the port.
     listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
+        # Live restarts the script whenever a Set opens. On macOS and Linux, connections the
+        # old listener accepted can hold the port in TIME_WAIT, and without SO_REUSEADDR the
+        # new bind fails. There it still refuses a second active listener. Not on Windows,
+        # where SO_REUSEADDR would let two servers share the port.
+        if os.name != "nt":
+            listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         listener.bind((HOST, PORT))
         listener.listen(8)
         listener.setblocking(False)
