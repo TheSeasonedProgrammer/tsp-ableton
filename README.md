@@ -155,6 +155,16 @@ Everything listens on 127.0.0.1 only.
 
 Generated parts and new sounds can be much louder than expected. TSP MCP warns, in tool replies and in Live's status bar, whenever the Main track has no active Ableton Limiter. A Limiter can't make loud music quiet or control your monitor level, so start with your volume low.
 
+## Privacy
+
+TSP for Ableton Live doesn't collect any data. It has no telemetry, analytics, crash reporting or usage tracking, and nothing you make is used for AI training by this project.
+
+- **Everything stays on your computer.** The MCP server talks to Live over TCP on 127.0.0.1, and TSP Spatial sends its measurements over UDP to 127.0.0.1. Neither contacts any outside service.
+- **Files it writes are local:** the Remote Script in your User Library, `.vstpreset` and Serum preset files it creates there, a cache of the tool list, and messages in Live's own `Log.txt`.
+- **The only downloads** are the package and its dependencies, fetched by `uvx` from PyPI when you install or update.
+
+Your MCP client is a separate product. Whatever you ask the AI, and the tool results it reads, such as track names, clip contents and measurements, go to your AI provider under that provider's own terms and privacy settings, the same as anything else you share in a conversation.
+
 ## Tests
 
 ```

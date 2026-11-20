@@ -13,3 +13,5 @@ Restart Live, open Settings > Link, Tempo & MIDI, and in an empty Control Surfac
 To remove it, run `uvx tsp-mcp-for-ableton-live uninstall`.
 
 Licensed under the Apache License, Version 2.0.
+
+It collects no data: no telemetry or analytics, and everything runs on your computer over 127.0.0.1. See [Privacy](https://github.com/TheSeasonedProgrammer/tsp-ableton#privacy).
