@@ -2,6 +2,8 @@
 
 Control Ableton Live 12 from Claude and other MCP clients. This project is independent and isn't affiliated with or endorsed by Ableton or Arturia. All product names are trademarks of their owners.
 
+Made by [The Seasoned Programmer](https://the-seasoned-programmer.com/).
+
 You need [uv](https://docs.astral.sh/uv/getting-started/installation/). Then run:
 
 ```
